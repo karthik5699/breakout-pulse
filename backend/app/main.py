@@ -88,40 +88,8 @@ def _run_scan_job():
     finally:
         scan_state["is_scanning"] = False
 
-async def _daily_430pm_scheduler():
-    """
-    Background loop that automatically triggers a full market scan at 4:30 PM IST on weekdays.
-    Includes a Smart Catch-Up mechanism: if the laptop was sleeping at 4:30 PM and wakes up later,
-    it detects that market close has passed and immediately runs the scan silently.
-    """
-    while True:
-        try:
-            now = datetime.now()
-            today_str = now.strftime("%Y-%m-%d")
-            last_scanned_str = scan_state.get("last_scanned")
-            last_scanned_date = last_scanned_str.split(" ")[0] if last_scanned_str else None
-
-            # Weekdays: Monday (0) to Friday (4)
-            if now.weekday() < 5:
-                # Is it at or after 4:30 PM (16:30) IST?
-                is_after_market_close = (now.hour > 16) or (now.hour == 16 and now.minute >= 30)
-                
-                # If market has closed and today's scan hasn't run yet, run it silently
-                if is_after_market_close and last_scanned_date != today_str and not scan_state["is_scanning"]:
-                    logger.info(f"🕒 [Catch-Up / Auto Trigger] Market closed. Running automated scan for {today_str}...")
-                    _run_scan_job()
-            
-            await asyncio.sleep(30)
-        except Exception as e:
-            logger.error(f"Scheduler error: {e}")
-            await asyncio.sleep(60)
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_daily_430pm_scheduler())
-
 def _recompute_from_sqlite():
-    """Helper to recalculate all cached SQLite stocks using ScreenerEngine."""
+    """Recalculates all cached SQLite stocks using ScreenerEngine."""
     cached_syms = data_engine.get_all_cached_symbols()
     if not cached_syms:
         return []
@@ -215,7 +183,7 @@ def get_screened_stocks(
 
     # 1. Tab filtering
     if tab == "near_52w":
-        filtered = [x for x in filtered if x.status == "NEAR_52W_HIGH"]
+        filtered = [x for x in filtered if x.status in ("NEAR_52W_HIGH", "AT_52W_HIGH")]
     elif tab == "breakout_52w":
         filtered = [x for x in filtered if x.status == "AT_52W_HIGH"]
     elif tab == "ath":
@@ -239,6 +207,9 @@ def get_screened_stocks(
     if search:
         s = search.strip().upper()
         filtered = [x for x in filtered if s in x.symbol.upper() or s in x.name.upper()]
+
+    # 6. Sort descending by Volume Signal
+    filtered.sort(key=lambda x: (x.vol_multiple if x.vol_multiple is not None else 0.0), reverse=True)
 
     return filtered[:limit]
 

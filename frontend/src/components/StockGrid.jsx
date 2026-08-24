@@ -81,7 +81,7 @@ export default function StockGrid({ stocks, onSelectStock, loading }) {
             <div className="flex items-center justify-between pt-1 border-t border-surface-border dark:border-surface-dark-border text-xs">
               <div className="text-[11px] text-muted flex items-center gap-1">
                 {s.passes_trend_check && <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />}
-                <span>{s.status_label}</span>
+                <span>{s.passes_trend_check ? 'Stage 2 Trend' : 'Consolidating'}</span>
               </div>
               <div className="text-[11px] text-muted font-mono">
                 Vol ₹{s.turnover_cr} Cr

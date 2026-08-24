@@ -1,5 +1,5 @@
 import React from 'react'
-import { Sun, Moon, RefreshCw, Upload, Search, Zap, Layers, BarChart2 } from 'lucide-react'
+import { Sun, Moon, RefreshCw, Upload, Search } from 'lucide-react'
 
 export default function Navbar({
   theme,

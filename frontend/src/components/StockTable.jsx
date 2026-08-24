@@ -1,7 +1,10 @@
-import React from 'react'
-import { Flame, ShieldCheck } from 'lucide-react'
+import React, { useState } from 'react'
+import { Flame, ShieldCheck, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 export default function StockTable({ stocks, onSelectStock, loading }) {
+  const [sortField, setSortField] = useState('vol_multiple')
+  const [sortAsc, setSortAsc] = useState(false) // Default descending for highest volume first
+
   if (loading) {
     return (
       <div className="bg-surface dark:bg-surface-dark border border-surface-border dark:border-surface-dark-border rounded-2xl p-12 text-center">
@@ -23,33 +26,37 @@ export default function StockTable({ stocks, onSelectStock, loading }) {
     )
   }
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'NEAR_ATH':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            👑 All-Time High
-          </span>
-        )
-      case 'NEAR_52W_HIGH':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-            🎯 Near 52W High
-          </span>
-        )
-      case 'RECENT_LISTING':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-            ✨ Recent Listing
-          </span>
-        )
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-            Consolidating
-          </span>
-        )
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc)
+    } else {
+      setSortField(field)
+      setSortAsc(false) // Default descending on new column click
     }
+  }
+
+  const sortedStocks = [...stocks].sort((a, b) => {
+    let valA = a[sortField]
+    let valB = b[sortField]
+
+    if (valA === undefined || valA === null) valA = -999999
+    if (valB === undefined || valB === null) valB = -999999
+
+    if (typeof valA === 'string') {
+      return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA)
+    }
+    return sortAsc ? (valA - valB) : (valB - valA)
+  })
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-100 inline ml-1" />
+    }
+    return sortAsc ? (
+      <ArrowUp className="w-3 h-3 text-banana inline ml-1" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-banana inline ml-1" />
+    )
   }
 
   return (
@@ -58,20 +65,64 @@ export default function StockTable({ stocks, onSelectStock, loading }) {
         <table className="w-full text-left text-xs">
           <thead className="bg-gray-50 dark:bg-[#161a20] border-b border-surface-border dark:border-surface-dark-border text-muted font-semibold uppercase tracking-wider text-[10px]">
             <tr>
-              <th className="py-3 px-4">Ticker / Company</th>
-              <th className="py-3 px-3 text-right">Price (₹)</th>
-              <th className="py-3 px-3 text-right">Change %</th>
-              <th className="py-3 px-3 text-center">Volume Signal</th>
-              <th className="py-3 px-3 text-right">52W High</th>
-              <th className="py-3 px-3 text-right">Dist to 52W</th>
-              <th className="py-3 px-3 text-right">All-Time High</th>
-              <th className="py-3 px-3 text-right">Dist to ATH</th>
-              <th className="py-3 px-3 text-right">Turnover</th>
-              <th className="py-3 px-4 text-center">Setup Category</th>
+              <th 
+                onClick={() => handleSort('symbol')}
+                className="py-3 px-4 cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Ticker / Company {renderSortIcon('symbol')}
+              </th>
+              <th 
+                onClick={() => handleSort('current_price')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Price (₹) {renderSortIcon('current_price')}
+              </th>
+              <th 
+                onClick={() => handleSort('change_pct')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Change % {renderSortIcon('change_pct')}
+              </th>
+              <th 
+                onClick={() => handleSort('vol_multiple')}
+                className="py-3 px-3 text-center cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group text-amber-500 font-bold"
+              >
+                Volume Signal {renderSortIcon('vol_multiple')}
+              </th>
+              <th 
+                onClick={() => handleSort('high_52w')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                52W High {renderSortIcon('high_52w')}
+              </th>
+              <th 
+                onClick={() => handleSort('dist_to_52w_high_pct')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Dist to 52W {renderSortIcon('dist_to_52w_high_pct')}
+              </th>
+              <th 
+                onClick={() => handleSort('high_ath')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                All-Time High {renderSortIcon('high_ath')}
+              </th>
+              <th 
+                onClick={() => handleSort('dist_to_ath_pct')}
+                className="py-3 px-3 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Dist to ATH {renderSortIcon('dist_to_ath_pct')}
+              </th>
+              <th 
+                onClick={() => handleSort('turnover_cr')}
+                className="py-3 px-4 text-right cursor-pointer select-none hover:text-gray-900 dark:hover:text-white group"
+              >
+                Turnover {renderSortIcon('turnover_cr')}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border dark:divide-surface-dark-border">
-            {stocks.map((s) => {
+            {sortedStocks.map((s) => {
               const isPos = s.change_pct >= 0
               return (
                 <tr
@@ -151,13 +202,8 @@ export default function StockTable({ stocks, onSelectStock, loading }) {
                   </td>
 
                   {/* Turnover */}
-                  <td className="py-3.5 px-3 text-right font-mono text-gray-500">
+                  <td className="py-3.5 px-4 text-right font-mono text-gray-500">
                     ₹{s.turnover_cr} Cr
-                  </td>
-
-                  {/* Category Badge */}
-                  <td className="py-3.5 px-4 text-center">
-                    {getStatusBadge(s.status)}
                   </td>
                 </tr>
               )

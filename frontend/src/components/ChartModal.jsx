@@ -115,7 +115,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
       const sma50Series = chart.addLineSeries({
         color: '#3b82f6',
         lineWidth: 1.5,
-        title: '50 SMA',
+        title: '',
       })
       sma50Series.setData(sma50Data)
     }
@@ -133,7 +133,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
       const sma200Series = chart.addLineSeries({
         color: '#f97316',
         lineWidth: 2,
-        title: '200 SMA',
+        title: '',
       })
       sma200Series.setData(sma200Data)
     }
@@ -146,7 +146,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
         lineWidth: 2,
         lineStyle: 0, // Solid
         axisLabelVisible: true,
-        title: `👑 ALL-TIME HIGH (₹${data.high_ath})`,
+        title: '',
       })
     }
 
@@ -158,7 +158,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
         lineWidth: 2,
         lineStyle: 2, // Dashed
         axisLabelVisible: true,
-        title: `🎯 52W HIGH (₹${data.high_52w})`,
+        title: '',
       })
     }
 
