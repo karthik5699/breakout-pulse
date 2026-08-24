@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f5;
+  --border: #e9ecef;
+  --ink: #1a1a17;
+  --muted: #6b7480;
+  --banana: #FFC926;
+  --banana-soft: #fff3cf;
+  --green: #1a8a4a;
+  --green-bg: #e6f4ec;
+  --red: #d2392f;
+  --red-bg: #fbeae8;
+}
+
+.dark {
+  --bg: #0e1116;
+  --surface: #161a20;
+  --surface-2: #1d2229;
+  --border: #272d36;
+  --ink: #e8eaed;
+  --muted: #9aa3ad;
+  --banana: #FFC926;
+  --banana-soft: #3a2f0d;
+  --green: #3ecf7d;
+  --green-bg: #12301f;
+  --red: #ff6b5e;
+  --red-bg: #331715;
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.5);
+}
