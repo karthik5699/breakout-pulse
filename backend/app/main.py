@@ -59,25 +59,37 @@ def _run_scan_job():
         # 1. Fetch benchmarks
         sm_bench, n50_bench = data_engine.fetch_benchmarks(period="5y")
         
-        # 2. Fetch or load cached stocks
+        # 2. Fetch/update stocks in parallel using ThreadPoolExecutor for 10x speed
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        def _fetch_stock_worker(sym):
+            try:
+                cached_df = data_engine.get_cached_candles(sym)
+                if cached_df is None or len(cached_df) < 20:
+                    data_engine.fetch_and_cache_symbol(sym, period="5y")
+                else:
+                    data_engine.fetch_and_cache_symbol(sym, period="1mo")
+            except Exception as e:
+                logger.warning(f"Error fetching {sym}: {e}")
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_sym = {executor.submit(_fetch_stock_worker, sym): sym for sym in symbols}
+            for future in as_completed(future_to_sym):
+                sym = future_to_sym[future]
+                scan_state["progress"] += 1
+                scan_state["current_symbol"] = sym
+
+        # 3. Load all updated DataFrames from SQLite
         stock_dfs = {}
         stock_names = {}
-        
-        for idx, sym in enumerate(symbols):
-            scan_state["progress"] = idx + 1
-            scan_state["current_symbol"] = sym
+        for sym in symbols:
             meta = universe_store.get(sym)
             stock_names[sym] = meta.name if meta else sym
-            
-            # Check cached or fetch if missing
-            cached_df = data_engine.get_cached_candles(sym)
-            if cached_df is None or len(cached_df) < 20:
-                cached_df = data_engine.fetch_and_cache_symbol(sym, period="5y")
-            
-            if cached_df is not None and len(cached_df) >= 20:
-                stock_dfs[sym] = cached_df
+            updated_df = data_engine.get_cached_candles(sym)
+            if updated_df is not None and len(updated_df) >= 20:
+                stock_dfs[sym] = updated_df
                 
-        # 3. Run full High/ATH analysis
+        # 4. Run full High/ATH analysis
         results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
         scan_state["cached_results"] = results
         scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -161,6 +173,7 @@ def get_universe_stats():
         recent_listing_count=recent_listing,
         confirmed_volume_count=confirmed_vol,
         last_scanned=scan_state.get("last_scanned"),
+        latest_data_date=data_engine.get_latest_data_date(),
         smallmid_trend=sm_trend,
         nifty50_trend=n50_trend
     )
@@ -218,12 +231,18 @@ def get_screened_stocks(
 def get_stock_chart(symbol: str):
     clean_sym = symbol.strip().upper().replace(".NS", "")
     df = data_engine.get_cached_candles(clean_sym)
+    today_str = datetime.now().strftime("%Y-%m-%d")
     
     if df is None or len(df) < 5:
-        # Try fetching live
+        # Try fetching live 5y history
         df = data_engine.fetch_and_cache_symbol(clean_sym, period="5y")
-        if df is None or len(df) < 5:
-            raise HTTPException(status_code=404, detail=f"No chart data available for {symbol}")
+    elif str(df["date"].iloc[-1]) < today_str:
+        # Update latest candles on-demand so chart always reflects newest market day
+        data_engine.fetch_and_cache_symbol(clean_sym, period="1mo")
+        df = data_engine.get_cached_candles(clean_sym)
+
+    if df is None or len(df) < 5:
+        raise HTTPException(status_code=404, detail=f"No chart data available for {symbol}")
 
     computed_df = screener_engine.compute_indicators(df)
     meta = universe_store.get(clean_sym)
@@ -240,7 +259,7 @@ def get_stock_chart(symbol: str):
     # Format candles for TradingView Lightweight Charts
     candles = [
         Candle(
-            time=row["date_str"],
+            time=str(row["date"]) if "date" in row else str(row.get("date_str", "")),
             open=float(row["open"]),
             high=float(row["high"]),
             low=float(row["low"]),

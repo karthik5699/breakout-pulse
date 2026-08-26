@@ -197,18 +197,12 @@ class DataEngine:
             cursor.execute("SELECT DISTINCT symbol FROM daily_candles WHERE symbol NOT LIKE '^%'")
             return [row[0] for row in cursor.fetchall()]
 
-    def get_ticker_health_summary(self) -> Dict[str, Any]:
-        """Returns statistics on successfully fetched vs dropped tickers."""
+    def get_latest_data_date(self) -> str:
+        """Returns the most recent trading candle date recorded in SQLite."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT status, COUNT(*) FROM ticker_status GROUP BY status")
-            counts = dict(cursor.fetchall())
-            cursor.execute("SELECT symbol, error_message, last_attempt FROM ticker_status WHERE status = 'ERROR'")
-            errors = [{"symbol": r[0], "error": r[1], "time": r[2]} for r in cursor.fetchall()]
-            return {
-                "ok_count": counts.get("OK", 0),
-                "error_count": counts.get("ERROR", 0),
-                "errors": errors
-            }
+            cursor.execute("SELECT MAX(date) FROM daily_candles WHERE symbol NOT LIKE '^%'")
+            row = cursor.fetchone()
+            return row[0] if (row and row[0]) else datetime.now().strftime("%Y-%m-%d")
 
 data_engine = DataEngine()

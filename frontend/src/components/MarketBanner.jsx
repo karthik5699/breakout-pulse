@@ -1,5 +1,5 @@
 import React from 'react'
-import { Crown, Target, Flame, Sparkles, Clock } from 'lucide-react'
+import { Crown, Target, Flame, Sparkles, Clock, Calendar } from 'lucide-react'
 
 export default function MarketBanner({ stats, activeTab, setActiveTab }) {
   if (!stats) return null
@@ -33,6 +33,33 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
       bgColor: 'bg-purple-500/10 border-purple-500/30'
     }
   ]
+
+  const formatDataDate = (dateStr, lastScanned) => {
+    // 1. If explicit date string is provided (e.g. '2026-08-26')
+    if (dateStr && typeof dateStr === 'string' && dateStr.includes('-')) {
+      const parts = dateStr.split('-')
+      if (parts.length === 3) {
+        const [y, m, d] = parts
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const monthName = months[parseInt(m, 10) - 1] || m
+        return `${parseInt(d, 10)} ${monthName} ${y}`
+      }
+    }
+    // 2. Fallback to date from last_scanned
+    if (lastScanned && typeof lastScanned === 'string' && lastScanned.includes('-')) {
+      const datePart = lastScanned.split(' ')[0]
+      const parts = datePart.split('-')
+      if (parts.length === 3) {
+        const [y, m, d] = parts
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        const monthName = months[parseInt(m, 10) - 1] || m
+        return `${parseInt(d, 10)} ${monthName} ${y}`
+      }
+    }
+    // 3. Current calendar date fallback
+    const today = new Date()
+    return today.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
 
   return (
     <div className="mb-6 space-y-4">
@@ -71,6 +98,15 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
       {/* Market Health & Volume Stats Strip */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-gray-50 dark:bg-[#161a20] rounded-xl border border-surface-border dark:border-surface-dark-border text-xs text-muted">
         <div className="flex items-center gap-4 flex-wrap">
+          {/* Latest Data Date Badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-medium">
+            <Calendar className="w-3.5 h-3.5 text-blue-500" />
+            <span>Latest Market Data:</span>
+            <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
+              {formatDataDate(stats.latest_data_date, stats.last_scanned)}
+            </span>
+          </div>
+
           <div className="flex items-center gap-2 text-amber-500 font-medium">
             <Flame className="w-3.5 h-3.5" />
             <span>{stats.confirmed_volume_count || 0} Volume Confirmed Setups (🔥)</span>

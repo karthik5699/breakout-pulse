@@ -103,5 +103,6 @@ class UniverseStats(BaseModel):
     recent_listing_count: int
     confirmed_volume_count: int
     last_scanned: Optional[str] = None
+    latest_data_date: Optional[str] = None
     smallmid_trend: str
     nifty50_trend: str
