@@ -13,30 +13,29 @@ export default function ScreenerTabs({
   totalResults
 }) {
   const tabs = [
-    { id: 'ath', label: 'All-Time High (ATH)', emoji: '👑' },
-    { id: 'near_52w', label: 'Near 52W High (-10%)', emoji: '🎯' },
-    { id: 'recent_listings', label: 'Recent Listings (<2Y)', emoji: '✨' },
-    { id: 'all', label: 'All Tracked Stocks', emoji: '📋' }
+    { id: 'ath', label: 'All-Time High (ATH)' },
+    { id: 'near_52w', label: 'Near 52W High (-10%)' },
+    { id: 'recent_listings', label: 'Recent Listings (<2Y)' },
+    { id: 'all', label: 'All Tracked Stocks' }
   ]
 
   return (
-    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800 font-sans">
+    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 pb-3 border-b border-[#E5E7EB] dark:border-[#1F2937] font-sans">
       
-      {/* Primary Tab Navigation */}
-      <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
+      {/* Primary Tab Navigation - Quartr Style Ghosting */}
+      <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
         {tabs.map((t) => {
           const isActive = activeTab === t.id
           return (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
+              className={`px-3.5 py-2 text-xs rounded-xl whitespace-nowrap transition-all ${
                 isActive
-                  ? 'bg-[#1E3A8A] text-white shadow-sm font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#1d2229]'
+                  ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-bold shadow-none'
+                  : 'text-[#6B7280] dark:text-[#9CA3AF] font-medium hover:text-[#111827] dark:hover:text-[#F9FAFB] hover:bg-gray-50 dark:hover:bg-[#161D27]'
               }`}
             >
-              <span>{t.emoji}</span>
               <span>{t.label}</span>
             </button>
           )
@@ -49,37 +48,37 @@ export default function ScreenerTabs({
         {/* Volume Confirmed Default Toggle */}
         <button
           onClick={() => setVolumeConfirmedOnly(!volumeConfirmedOnly)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl transition-all border ${
             volumeConfirmedOnly
-              ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-              : 'bg-white dark:bg-[#161a20] border-slate-200 dark:border-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-bold border-transparent'
+              : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
           }`}
           title="Toggle Volume Confirmation (>= 1.4x 50-day average volume)"
         >
-          <Flame className={`w-3.5 h-3.5 ${volumeConfirmedOnly ? 'text-amber-600 fill-amber-600 dark:text-amber-400 dark:fill-amber-400' : ''}`} />
-          <span>{volumeConfirmedOnly ? 'Volume Confirmed (🔥)' : 'All Volumes (🔥 & ⚠️)'}</span>
+          <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
+          <span>Volume Confirmed</span>
         </button>
 
         {/* Trend Filter Toggle */}
         <button
           onClick={() => setTrendOnly(!trendOnly)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl transition-all border ${
             trendOnly
-              ? 'bg-green-50 dark:bg-green-950/40 border-green-300 dark:border-green-800 text-[#15803D] dark:text-[#22C55E]'
-              : 'bg-white dark:bg-[#161a20] border-slate-200 dark:border-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-bold border-transparent'
+              : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
           }`}
           title="Filter only stocks with Price > 50 > 200 SMA and Rising 200 SMA"
         >
-          <ShieldCheck className={`w-3.5 h-3.5 ${trendOnly ? 'text-[#15803D] dark:text-[#22C55E]' : ''}`} />
+          <ShieldCheck className="w-3.5 h-3.5 text-[#9CA3AF]" />
           <span>Stage 2 Trend</span>
         </button>
 
         {/* View Switcher (Table vs Grid) */}
-        <div className="flex items-center bg-slate-100 dark:bg-[#1d2229] p-0.5 rounded-xl border border-slate-200/60 dark:border-slate-800">
+        <div className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl">
           <button
             onClick={() => setViewMode('table')}
             className={`p-1.5 rounded-lg transition-colors ${
-              viewMode === 'table' ? 'bg-white dark:bg-[#2a303c] text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              viewMode === 'table' ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-bold' : 'text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
             }`}
             aria-label="Table View"
           >
@@ -88,7 +87,7 @@ export default function ScreenerTabs({
           <button
             onClick={() => setViewMode('grid')}
             className={`p-1.5 rounded-lg transition-colors ${
-              viewMode === 'grid' ? 'bg-white dark:bg-[#2a303c] text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              viewMode === 'grid' ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-bold' : 'text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
             }`}
             aria-label="Grid View"
           >

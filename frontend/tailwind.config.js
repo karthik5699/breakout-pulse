@@ -8,38 +8,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          DEFAULT: '#1E3A8A',       // Deep Slate Blue Primary Accent
-          hover: '#1E40AF',
-          light: '#2563EB',
-          dark: '#172554',
-          soft: '#EFF6FF',
-          muted: '#3B82F6',
-          border: '#BFDBFE'
-        },
-        gold: {
-          DEFAULT: '#D97706',       // Muted, sophisticated gold
-          soft: '#FEF3C7',
-          dark: '#B45309',
-          border: '#FDE68A'
+        ink: {
+          DEFAULT: '#111827', // Tailwind gray-900: Rich, heavy charcoal primary text
+          muted: '#6B7280',   // Tailwind gray-500: Secondary metadata & labels
+          subtle: '#9CA3AF',  // Tailwind gray-400: Neutral silhouette icons
+          light: '#F9FAFB',   // Tailwind gray-50: Dark mode primary text
+          'light-muted': '#9CA3AF'
         },
         trade: {
-          green: '#15803D',         // Darkened, saturated high-contrast green (Light)
-          'green-dark': '#22C55E',  // Saturated green (Dark mode)
-          'green-soft': '#DCFCE7',  // High-contrast soft green background
-          red: '#DC2626',           // High-contrast red (Light)
-          'red-dark': '#EF4444',    // Saturated red (Dark mode)
-          'red-soft': '#FEE2E2',    // Soft red background
-          blue: '#1E3A8A',
-          'blue-soft': '#EFF6FF'
+          green: '#16A34A',         // Crisp accessible semantic green
+          'green-dark': '#22C55E',
+          red: '#DC2626',           // Stark semantic red
+          'red-dark': '#EF4444'
         },
         surface: {
           light: '#FFFFFF',
-          'light-2': '#F8F9FA',
-          border: '#E2E8F0',
-          dark: '#0E1116',
-          'dark-card': '#161A20',
-          'dark-border': '#272D36'
+          'light-2': '#F9FAFB',
+          border: '#E5E7EB',
+          dark: '#0B0F17',
+          'dark-card': '#111827',
+          'dark-border': '#1F2937'
         }
       },
       fontFamily: {

@@ -55,63 +55,63 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
-      <div className="bg-white dark:bg-[#161a20] border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl p-6 relative">
+      <div className="bg-white dark:bg-[#111827] border border-[#E5E7EB] dark:border-[#1F2937] rounded-3xl w-full max-w-lg shadow-2xl p-6 relative">
         
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute right-5 top-5 p-1.5 rounded-xl text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#272d36] transition-colors"
+          className="absolute right-5 top-5 p-1.5 rounded-xl text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB] hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Title */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-[#1E3A8A] dark:text-blue-400 border border-blue-100 dark:border-blue-900/40">
-            <Database className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-[#F9FAFB] dark:bg-[#1F2937] flex items-center justify-center text-[#111827] dark:text-[#F9FAFB] border border-[#E5E7EB] dark:border-[#374151]">
+            <Database className="w-5 h-5 text-[#9CA3AF]" />
           </div>
           <div>
-            <h2 className="font-bold text-lg text-slate-900 dark:text-slate-100">
+            <h2 className="font-bold text-lg text-[#111827] dark:text-[#F9FAFB]">
               Persistent NSE Stock Universe
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">
               Uploaded once and permanently saved to screener storage.
             </p>
           </div>
         </div>
 
         {/* Universe Health & Status */}
-        <div className="bg-slate-50 dark:bg-[#1d2229] p-3.5 rounded-2xl mb-4 text-xs space-y-1.5 border border-slate-200/60 dark:border-slate-800">
-          <div className="flex justify-between text-slate-600 dark:text-slate-300">
+        <div className="bg-[#F9FAFB] dark:bg-[#161D27] p-3.5 rounded-2xl mb-4 text-xs space-y-1.5 border border-[#E5E7EB] dark:border-[#1F2937]">
+          <div className="flex justify-between text-[#6B7280] dark:text-[#9CA3AF]">
             <span>Currently Active Stocks:</span>
-            <span className="font-mono font-bold text-slate-900 dark:text-slate-100">{stats?.total_stocks || 0} stocks</span>
+            <span className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">{stats?.total_stocks || 0} stocks</span>
           </div>
-          <div className="flex justify-between text-slate-600 dark:text-slate-300">
+          <div className="flex justify-between text-[#6B7280] dark:text-[#9CA3AF]">
             <span>Cached Price History:</span>
-            <span className="font-mono font-semibold text-[#15803D] dark:text-[#22C55E]">{stats?.cached_stocks || 0} downloaded (SQLite)</span>
+            <span className="font-mono font-semibold text-[#16A34A] dark:text-[#22C55E]">{stats?.cached_stocks || 0} downloaded (SQLite)</span>
           </div>
         </div>
 
         {/* Drag and Drop Zone */}
-        <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-[#1E3A8A] dark:hover:border-blue-500 rounded-2xl p-6 text-center cursor-pointer transition-colors mb-4 relative bg-slate-50/50 dark:bg-[#13171d]/50">
+        <div className="border-2 border-dashed border-[#E5E7EB] dark:border-[#374151] hover:border-[#111827] dark:hover:border-[#F9FAFB] rounded-2xl p-6 text-center cursor-pointer transition-colors mb-4 relative bg-[#F9FAFB]/50 dark:bg-[#161D27]/50">
           <input
             type="file"
             accept=".csv"
             onChange={handleFileChange}
             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
           />
-          <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+          <Upload className="w-8 h-8 mx-auto text-[#9CA3AF] mb-2" />
           {file ? (
-            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[#15803D] dark:text-[#22C55E]">
-              <FileText className="w-4 h-4" />
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-[#16A34A] dark:text-[#22C55E]">
+              <FileText className="w-4 h-4 text-[#9CA3AF]" />
               {file.name}
             </div>
           ) : (
             <div>
-              <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div className="text-xs font-semibold text-[#111827] dark:text-[#F9FAFB]">
                 Click or drag & drop custom NSE CSV here
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
+              <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] mt-1">
                 Columns: SYMBOL, NAME OF COMPANY, SERIES, etc.
               </div>
             </div>
@@ -121,14 +121,14 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
         {/* Alerts */}
         {error && (
           <div className="flex items-center gap-2 text-xs text-[#DC2626] dark:text-[#EF4444] bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/40 p-3 rounded-xl mb-4 font-medium">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <AlertCircle className="w-4 h-4 shrink-0 text-[#DC2626]" />
             {error}
           </div>
         )}
 
         {message && (
-          <div className="flex items-center gap-2 text-xs text-[#15803D] dark:text-[#22C55E] bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900/40 p-3 rounded-xl mb-4 font-medium">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <div className="flex items-center gap-2 text-xs text-[#16A34A] dark:text-[#22C55E] bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900/40 p-3 rounded-xl mb-4 font-medium">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[#16A34A]" />
             {message}
           </div>
         )}
@@ -137,7 +137,7 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
         <div className="flex items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#1d2229] rounded-xl transition-colors"
+            className="px-4 py-2 text-xs font-semibold text-[#6B7280] dark:text-[#9CA3AF] hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] rounded-xl transition-colors"
           >
             Cancel
           </button>
@@ -146,8 +146,8 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
             disabled={!file || uploading}
             className={`px-5 py-2 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all ${
               !file || uploading
-                ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                : 'bg-[#1E3A8A] hover:bg-[#1E40AF] dark:bg-blue-600 dark:hover:bg-blue-500 text-white shadow-sm active:scale-95'
+                ? 'bg-[#E5E7EB] dark:bg-[#1F2937] text-[#9CA3AF] cursor-not-allowed'
+                : 'bg-[#111827] hover:bg-black dark:bg-[#F9FAFB] dark:hover:bg-white text-white dark:text-[#111827] shadow-sm active:scale-95'
             }`}
           >
             {uploading ? (
