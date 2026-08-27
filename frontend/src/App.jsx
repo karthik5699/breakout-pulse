@@ -132,7 +132,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-sans selection:bg-banana selection:text-black">
+    <div className="min-h-screen flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900 dark:selection:bg-blue-950 dark:selection:text-blue-200">
       
       {/* Top Navbar */}
       <Navbar
