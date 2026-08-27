@@ -222,7 +222,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-[#E5E7EB] dark:border-[#1F2937] py-6 px-4 text-center text-xs text-[#6B7280] dark:text-[#9CA3AF]">
         <p className="font-normal">
-          <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">Breakout</span>Pulse • 52-Week High & All-Time High Momentum Screener
+          <span className="font-semibold text-[#8069BF]">Breakout</span><span className="text-[#6B7280] dark:text-[#9CA3AF]">Pulse</span> • 52-Week High & All-Time High Momentum Screener
         </p>
         <p className="mt-1 text-[11px]">Continuously adjusted NSE equities data for quantitative trading research.</p>
       </footer>

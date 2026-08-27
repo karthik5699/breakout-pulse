@@ -67,14 +67,14 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
 
         {/* Title */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-[#F9FAFB] dark:bg-[#1F2937] flex items-center justify-center text-[#111827] dark:text-[#F9FAFB] border border-[#E5E7EB] dark:border-[#374151]">
-            <Database className="w-5 h-5 text-[#9CA3AF]" />
+          <div className="w-10 h-10 rounded-xl bg-[#8069BF]/10 dark:bg-[#8069BF]/20 flex items-center justify-center text-[#8069BF] border border-[#8069BF]/30">
+            <Database className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-bold text-lg text-[#111827] dark:text-[#F9FAFB]">
+            <h2 className="font-semibold text-lg text-[#111827] dark:text-[#F9FAFB]">
               Persistent NSE Stock Universe
             </h2>
-            <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">
+            <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] font-normal">
               Uploaded once and permanently saved to screener storage.
             </p>
           </div>
@@ -84,16 +84,16 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
         <div className="bg-[#F9FAFB] dark:bg-[#161D27] p-3.5 rounded-2xl mb-4 text-xs space-y-1.5 border border-[#E5E7EB] dark:border-[#1F2937]">
           <div className="flex justify-between text-[#6B7280] dark:text-[#9CA3AF]">
             <span>Currently Active Stocks:</span>
-            <span className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">{stats?.total_stocks || 0} stocks</span>
+            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats?.total_stocks || 0} stocks</span>
           </div>
           <div className="flex justify-between text-[#6B7280] dark:text-[#9CA3AF]">
             <span>Cached Price History:</span>
-            <span className="font-mono font-semibold text-[#16A34A] dark:text-[#22C55E]">{stats?.cached_stocks || 0} downloaded (SQLite)</span>
+            <span className="font-semibold tabular-nums text-[#16A34A] dark:text-[#22C55E]">{stats?.cached_stocks || 0} downloaded (SQLite)</span>
           </div>
         </div>
 
         {/* Drag and Drop Zone */}
-        <div className="border-2 border-dashed border-[#E5E7EB] dark:border-[#374151] hover:border-[#111827] dark:hover:border-[#F9FAFB] rounded-2xl p-6 text-center cursor-pointer transition-colors mb-4 relative bg-[#F9FAFB]/50 dark:bg-[#161D27]/50">
+        <div className="border-2 border-dashed border-[#E5E7EB] dark:border-[#374151] hover:border-[#8069BF] dark:hover:border-[#8069BF] rounded-2xl p-6 text-center cursor-pointer transition-colors mb-4 relative bg-[#F9FAFB]/50 dark:bg-[#161D27]/50">
           <input
             type="file"
             accept=".csv"
@@ -111,7 +111,7 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
               <div className="text-xs font-semibold text-[#111827] dark:text-[#F9FAFB]">
                 Click or drag & drop custom NSE CSV here
               </div>
-              <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] mt-1">
+              <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] mt-1 font-normal">
                 Columns: SYMBOL, NAME OF COMPANY, SERIES, etc.
               </div>
             </div>
@@ -147,7 +147,7 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
             className={`px-5 py-2 text-xs font-semibold rounded-xl flex items-center gap-2 transition-all ${
               !file || uploading
                 ? 'bg-[#E5E7EB] dark:bg-[#1F2937] text-[#9CA3AF] cursor-not-allowed'
-                : 'bg-[#111827] hover:bg-black dark:bg-[#F9FAFB] dark:hover:bg-white text-white dark:text-[#111827] shadow-sm active:scale-95'
+                : 'bg-[#8069BF] hover:bg-[#7259B4] text-white shadow-xs active:scale-95'
             }`}
           >
             {uploading ? (
