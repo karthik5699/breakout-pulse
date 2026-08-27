@@ -138,7 +138,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-sans bg-white dark:bg-[#0B0F17] text-[#111827] dark:text-[#F9FAFB] selection:bg-gray-200 selection:text-black dark:selection:bg-gray-800 dark:selection:text-white">
+    <div className="min-h-screen flex flex-col bg-white dark:bg-[#0B0F17] text-[#111827] dark:text-[#F9FAFB] selection:bg-gray-200 selection:text-black dark:selection:bg-gray-800 dark:selection:text-white">
       
       {/* Top Navbar */}
       <Navbar
@@ -221,8 +221,10 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-[#E5E7EB] dark:border-[#1F2937] py-6 px-4 text-center text-xs text-[#6B7280] dark:text-[#9CA3AF]">
-        <p className="font-medium text-[#111827] dark:text-[#F9FAFB]">BreakoutPulse • 52-Week High & All-Time High Momentum Screener</p>
-        <p className="mt-1 text-[11px]">Real-time adjusted data via continuous NSE feeds. For educational & trading research purposes.</p>
+        <p className="font-normal">
+          <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">Breakout</span>Pulse • 52-Week High & All-Time High Momentum Screener
+        </p>
+        <p className="mt-1 text-[11px]">Continuously adjusted NSE equities data for quantitative trading research.</p>
       </footer>
 
       {/* Interactive Chart Modal */}

@@ -18,20 +18,32 @@ export default function Navbar({
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111827]/95 backdrop-blur border-b border-[#E5E7EB] dark:border-[#1F2937] transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
         
-        {/* Brand */}
+        {/* Brand: Institutional Geometric Logomark & Wordmark */}
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setActiveTab('near_52w')}
-            className="flex items-center gap-3 text-left focus:outline-none group"
+            className="flex items-center gap-2.5 text-left focus:outline-none group"
           >
-            <div className="w-10 h-10 rounded-xl bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
-              <span className="text-lg">🚀</span>
+            {/* VCP Geometric Logomark */}
+            <div className="w-8 h-8 rounded-lg bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center shadow-xs transition-transform group-hover:scale-102">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4.5 h-4.5">
+                <path 
+                  d="M3 17L7 8L11 15L15 10L18 13L21 5" 
+                  stroke="currentColor" 
+                  strokeWidth="2.2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+              </svg>
             </div>
+
             <div>
-              <div className="font-sans font-bold text-lg tracking-tight text-[#111827] dark:text-[#F9FAFB]">
-                BreakoutPulse
+              {/* Wordmark: Breakout (SemiBold 600, Ink Black) + Pulse (Regular 400, Muted Gray) */}
+              <div className="flex items-baseline text-lg tracking-tight leading-none">
+                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">Breakout</span>
+                <span className="font-normal text-[#6B7280] dark:text-[#9CA3AF]">Pulse</span>
               </div>
-              <div className="text-[11px] font-normal text-[#6B7280] dark:text-[#9CA3AF] tracking-tight">
+              <div className="text-[11px] font-normal text-[#6B7280] dark:text-[#9CA3AF] tracking-tight mt-0.5">
                 52W High & ATH Momentum Screener (NSE)
               </div>
             </div>
@@ -46,7 +58,7 @@ export default function Navbar({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search NSE ticker or company (e.g. TRENT, DIXON, BEL)..."
-            className="w-full pl-9 pr-4 py-2 text-sm bg-[#F9FAFB] dark:bg-[#1F2937] border border-transparent focus:border-[#111827] dark:focus:border-[#F9FAFB] rounded-xl focus:outline-none text-[#111827] dark:text-[#F9FAFB] placeholder:text-[#6B7280] dark:placeholder:text-[#9CA3AF] transition-all font-sans"
+            className="w-full pl-9 pr-4 py-2 text-sm bg-[#F9FAFB] dark:bg-[#1F2937] border border-transparent focus:border-[#111827] dark:focus:border-[#F9FAFB] rounded-xl focus:outline-none text-[#111827] dark:text-[#F9FAFB] placeholder:text-[#6B7280] dark:placeholder:text-[#9CA3AF] transition-all"
           />
           {searchQuery && (
             <button 
@@ -68,7 +80,7 @@ export default function Navbar({
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all ${
               scanStatus?.is_scanning
                 ? 'bg-[#E5E7EB] dark:bg-[#1F2937] text-[#9CA3AF] cursor-not-allowed'
-                : 'bg-[#111827] hover:bg-black dark:bg-[#F9FAFB] dark:hover:bg-white text-white dark:text-[#111827] shadow-sm active:scale-95'
+                : 'bg-[#111827] hover:bg-black dark:bg-[#F9FAFB] dark:hover:bg-white text-white dark:text-[#111827] shadow-xs active:scale-95'
             }`}
             title="Scan universe with latest daily close"
           >
@@ -87,7 +99,7 @@ export default function Navbar({
             title="Manage NSE Stock Universe CSV"
           >
             <Upload className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span className="hidden sm:inline font-sans">NSE Universe</span>
+            <span className="hidden sm:inline">NSE Universe</span>
           </button>
 
           {/* Theme Switcher */}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
-import { X, Flame } from 'lucide-react'
+import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts'
+import { X } from 'lucide-react'
 
 export default function ChartModal({ symbol, onClose, theme }) {
   const chartContainerRef = useRef(null)
@@ -8,6 +8,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [legendData, setLegendData] = useState(null)
 
   const isDark = theme === 'dark'
 
@@ -64,7 +65,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       },
       grid: {
-        vertLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
+        vertLines: { visible: false },
         horzLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
       },
       crosshair: {
@@ -77,6 +78,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
       timeScale: {
         borderColor: isDark ? '#1F2937' : '#E5E7EB',
         timeVisible: true,
+        rightOffset: 12,
       },
       handleScroll: true,
       handleScale: true,
@@ -84,9 +86,9 @@ export default function ChartModal({ symbol, onClose, theme }) {
 
     chartRef.current = chart
 
-    // 1. Candlestick Series
-    const upColor = isDark ? '#22c55e' : '#16a34a'
-    const downColor = isDark ? '#ef4444' : '#dc2626'
+    // 1. Candlestick Series - Emerald (#10B981) / Red (#EF4444)
+    const upColor = '#10B981'
+    const downColor = '#EF4444'
 
     const candleSeries = chart.addCandlestickSeries({
       upColor: upColor,
@@ -105,7 +107,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
     }))
     candleSeries.setData(candleData)
 
-    // 2. 50-day SMA Line
+    // 2. 50-day SMA Line: Sky Blue (#38BDF8), Solid 2px
     const closes = data.candles.map((c) => c.close)
     const sma50Data = []
     for (let i = 0; i < data.candles.length; i++) {
@@ -115,16 +117,18 @@ export default function ChartModal({ symbol, onClose, theme }) {
         sma50Data.push({ time: data.candles[i].time, value: avg })
       }
     }
+    let sma50Series = null
     if (sma50Data.length > 0) {
-      const sma50Series = chart.addLineSeries({
-        color: '#3b82f6',
-        lineWidth: 1.5,
+      sma50Series = chart.addLineSeries({
+        color: '#38BDF8',
+        lineWidth: 2,
+        lineStyle: LineStyle.Solid,
         title: '',
       })
       sma50Series.setData(sma50Data)
     }
 
-    // 3. 200-day SMA Line
+    // 3. 200-day SMA Line: Amber/Orange (#F97316), Solid 2px
     const sma200Data = []
     for (let i = 0; i < data.candles.length; i++) {
       if (i >= 199) {
@@ -133,47 +137,52 @@ export default function ChartModal({ symbol, onClose, theme }) {
         sma200Data.push({ time: data.candles[i].time, value: avg })
       }
     }
+    let sma200Series = null
     if (sma200Data.length > 0) {
-      const sma200Series = chart.addLineSeries({
-        color: '#ea580c',
+      sma200Series = chart.addLineSeries({
+        color: '#F97316',
         lineWidth: 2,
+        lineStyle: LineStyle.Solid,
         title: '',
       })
       sma200Series.setData(sma200Data)
     }
 
-    // 4. All-Time High Line
+    // 4. All-Time High Line: Gold/Yellow (#FACC15), Dashed 1.5px
     if (data.high_ath && data.high_ath > 0) {
       candleSeries.createPriceLine({
         price: data.high_ath,
-        color: '#d97706',
-        lineWidth: 2,
-        lineStyle: 0, // Solid
+        color: '#FACC15',
+        lineWidth: 1.5,
+        lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: '',
+        title: 'ATH',
       })
     }
 
-    // 5. 52-Week High Line
-    if (data.high_52w && data.high_52w > 0 && Math.abs(data.high_52w - data.high_ath) > (data.high_ath * 0.005)) {
+    // 5. 52-Week High Line: Purple (#A855F7), Dotted 1.5px (Omit if 52W High == ATH)
+    const isSameHigh = data.high_52w && data.high_ath && Math.abs(data.high_52w - data.high_ath) / data.high_ath < 0.005
+    if (data.high_52w && data.high_52w > 0 && !isSameHigh) {
       candleSeries.createPriceLine({
         price: data.high_52w,
-        color: '#2563eb',
-        lineWidth: 2,
-        lineStyle: 2, // Dashed
+        color: '#A855F7',
+        lineWidth: 1.5,
+        lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: '',
+        title: '52W H',
       })
     }
 
-    // 6. Volume Histogram Series
+    // 6. Volume Histogram Series (Occupy lower 18%, prevent price scale badge collision)
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
+      lastValueVisible: false,
+      priceLineVisible: false,
     })
 
     chart.priceScale('volume').applyOptions({
-      scaleMargins: { top: 0.78, bottom: 0.01 },
+      scaleMargins: { top: 0.82, bottom: 0.0 },
       borderVisible: false,
     })
 
@@ -181,10 +190,59 @@ export default function ChartModal({ symbol, onClose, theme }) {
       time: c.time,
       value: c.volume,
       color: c.close >= c.open 
-        ? (isDark ? 'rgba(34, 197, 94, 0.4)' : 'rgba(22, 163, 74, 0.4)')
-        : (isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(220, 38, 38, 0.4)'),
+        ? 'rgba(16, 185, 129, 0.35)' 
+        : 'rgba(239, 68, 68, 0.35)',
     }))
     volumeSeries.setData(volumeData)
+
+    // Set Default / Initial Legend Data (Most recent candle)
+    const lastCandle = data.candles[data.candles.length - 1]
+    const defaultLegend = {
+      time: lastCandle.time,
+      open: lastCandle.open,
+      high: lastCandle.high,
+      low: lastCandle.low,
+      close: lastCandle.close,
+      volume: lastCandle.volume,
+      sma50: sma50Data.length > 0 ? sma50Data[sma50Data.length - 1].value : null,
+      sma200: sma200Data.length > 0 ? sma200Data[sma200Data.length - 1].value : null,
+    }
+    setLegendData(defaultLegend)
+
+    // 7. Subscribe to Real-Time Crosshair Movement
+    chart.subscribeCrosshairMove((param) => {
+      if (
+        !param.point ||
+        !param.time ||
+        param.point.x < 0 ||
+        param.point.x > container.clientWidth ||
+        param.point.y < 0 ||
+        param.point.y > container.clientHeight
+      ) {
+        setLegendData(defaultLegend)
+        return
+      }
+
+      const candle = param.seriesData.get(candleSeries)
+      const sma50Val = sma50Series ? param.seriesData.get(sma50Series) : null
+      const sma200Val = sma200Series ? param.seriesData.get(sma200Series) : null
+      const volVal = volumeSeries ? param.seriesData.get(volumeSeries) : null
+
+      if (candle) {
+        setLegendData({
+          time: param.time,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: volVal ? volVal.value : candle.volume,
+          sma50: sma50Val ? sma50Val.value : null,
+          sma200: sma200Val ? sma200Val.value : null,
+        })
+      } else {
+        setLegendData(defaultLegend)
+      }
+    })
 
     chart.timeScale().fitContent()
 
@@ -205,6 +263,36 @@ export default function ChartModal({ symbol, onClose, theme }) {
     }
   }, [data, isDark])
 
+  const isSameHigh = data && data.high_52w && data.high_ath && (Math.abs(data.high_52w - data.high_ath) / data.high_ath < 0.005)
+
+  const formatNum2 = (val) => {
+    if (val === undefined || val === null || isNaN(val)) return '0.00'
+    return Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  const formatPct2 = (val) => {
+    if (val === undefined || val === null || isNaN(val)) return '0.00%'
+    const num = Number(val)
+    return num >= 0 ? `+${num.toFixed(2)}%` : `${num.toFixed(2)}%`
+  }
+
+  const formatLegendDate = (time) => {
+    if (!time) return ''
+    if (typeof time === 'string') {
+      const parts = time.split('-')
+      if (parts.length === 3) {
+        const [y, m, d] = parts
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        return `${parseInt(d, 10)} ${months[parseInt(m, 10) - 1] || m} ${y}`
+      }
+    }
+    if (typeof time === 'object' && time.year) {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      return `${time.day} ${months[time.month - 1] || time.month} ${time.year}`
+    }
+    return String(time)
+  }
+
   return (
     <div 
       onClick={onClose}
@@ -220,7 +308,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
         <div className="px-5 py-3.5 border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between gap-4 bg-white dark:bg-[#111827]">
           
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="w-10 h-10 rounded-xl bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center font-semibold text-sm shadow-xs">
+            <div className="w-9 h-9 rounded-lg bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center font-semibold text-xs shadow-xs">
               {symbol.slice(0, 2)}
             </div>
             <div>
@@ -228,38 +316,61 @@ export default function ChartModal({ symbol, onClose, theme }) {
                 <h2 className="text-lg font-semibold text-[#111827] dark:text-[#F9FAFB] tracking-tight">
                   {symbol}
                 </h2>
-                <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">NSE Equities</span>
+                <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF] font-normal">NSE Equities</span>
               </div>
-              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-sm font-normal">
+              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-xs sm:max-w-sm font-normal">
                 {data?.name || symbol}
               </p>
             </div>
           </div>
 
-          {/* Quick Metrics */}
+          {/* Quick Metrics: Aligned Labels & Values with Consolidated Duplicate Highs & Turnover */}
           {data && (
-            <div className="hidden lg:flex items-center gap-4 bg-[#F9FAFB] dark:bg-[#161D27] px-3.5 py-2 rounded-xl text-xs border border-[#E5E7EB] dark:border-[#1F2937]">
-              <div>
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">52W High:</span>
-                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-                  ₹{data.high_52w} ({data.dist_to_52w_high_pct >= 0 ? `+${data.dist_to_52w_high_pct}%` : `${data.dist_to_52w_high_pct}%`})
-                </span>
-              </div>
+            <div className="hidden md:flex items-center gap-4 bg-[#F9FAFB] dark:bg-[#161D27] px-4 py-2 rounded-xl text-xs border border-[#E5E7EB] dark:border-[#1F2937]">
+              
+              {/* Consolidated 52W / ATH or Distinct Badges */}
+              {isSameHigh ? (
+                <div>
+                  <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">52W / ATH:</span>
+                  <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
+                    {formatNum2(data.high_ath)} ({formatPct2(data.dist_to_ath_pct)})
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">52W High:</span>
+                    <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
+                      {formatNum2(data.high_52w)} ({formatPct2(data.dist_to_52w_high_pct)})
+                    </span>
+                  </div>
+                  <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
+                    <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">All-Time High:</span>
+                    <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
+                      {formatNum2(data.high_ath)} ({formatPct2(data.dist_to_ath_pct)})
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* Volume Multiple */}
               <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">All-Time High:</span>
-                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-                  ₹{data.high_ath} ({data.dist_to_ath_pct >= 0 ? `+${data.dist_to_ath_pct}%` : `${data.dist_to_ath_pct}%`})
-                </span>
-              </div>
-              <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">Volume Multiple:</span>
-                <span className={`font-semibold tabular-nums flex items-center gap-1 ${
-                  data.is_volume_confirmed ? 'text-[#16A34A] dark:text-[#22C55E]' : 'text-[#6B7280] dark:text-[#9CA3AF]'
+                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">Volume Signal:</span>
+                <span className={`font-semibold tabular-nums text-sm ${
+                  data.is_volume_confirmed ? 'text-[#16A34A] dark:text-[#22C55E]' : 'text-[#111827] dark:text-[#F9FAFB]'
                 }`}>
-                  <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
-                  {data.volume_multiple}x
+                  {Number(data.volume_multiple).toFixed(2)}x
                 </span>
               </div>
+
+              {/* Turnover */}
+              <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
+                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">Turnover:</span>
+                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
+                  {formatNum2(data.turnover_cr)} Cr/day
+                </span>
+              </div>
+
             </div>
           )}
 
@@ -273,30 +384,73 @@ export default function ChartModal({ symbol, onClose, theme }) {
           </button>
         </div>
 
-        {/* Legend Bar */}
-        <div className="px-5 py-2 bg-[#F9FAFB] dark:bg-[#111827] border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between text-[11px] text-[#6B7280] dark:text-[#9CA3AF] flex-wrap gap-2">
-          <div className="flex items-center gap-4 flex-wrap font-medium">
-            <span className="flex items-center gap-1.5 text-[#6B7280] dark:text-[#9CA3AF]">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
-              All-Time High
+        {/* Real-time Dynamic Crosshair Legend Bar */}
+        <div className="px-5 py-2.5 bg-[#F9FAFB] dark:bg-[#111827] border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between text-xs text-[#6B7280] dark:text-[#9CA3AF] flex-wrap gap-y-2 gap-x-4">
+          
+          {/* Live Hovered OHLC */}
+          {legendData && (
+            <div className="flex items-center gap-3.5 flex-wrap font-normal tabular-nums">
+              <span className="font-medium text-[#111827] dark:text-[#F9FAFB]">
+                {formatLegendDate(legendData.time)}
+              </span>
+              <span>
+                O: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(legendData.open)}</span>
+              </span>
+              <span>
+                H: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(legendData.high)}</span>
+              </span>
+              <span>
+                L: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(legendData.low)}</span>
+              </span>
+              <span>
+                C: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(legendData.close)}</span>
+              </span>
+              {/* Candle Return */}
+              {legendData.open && legendData.close && (
+                <span className={`font-semibold ${legendData.close >= legendData.open ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
+                  {legendData.close >= legendData.open ? '+' : ''}
+                  {(legendData.close - legendData.open).toFixed(2)} ({legendData.close >= legendData.open ? '+' : ''}{(((legendData.close - legendData.open) / legendData.open) * 100).toFixed(2)}%)
+                </span>
+              )}
+              {legendData.volume && (
+                <span>
+                  Vol: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{(legendData.volume >= 1e6 ? `${(legendData.volume / 1e6).toFixed(2)}M` : legendData.volume >= 1e3 ? `${(legendData.volume / 1e3).toFixed(1)}k` : legendData.volume)}</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Real-time Indicator Overlays */}
+          <div className="flex items-center gap-4 flex-wrap text-[11px] font-medium tabular-nums ml-auto">
+            {/* 50 DMA */}
+            <span className="flex items-center gap-1.5 text-[#38BDF8]">
+              <span className="w-2.5 h-0.5 bg-[#38BDF8] inline-block" />
+              50 DMA: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{legendData?.sma50 ? formatNum2(legendData.sma50) : '--'}</span>
             </span>
-            <span className="flex items-center gap-1.5 text-[#6B7280] dark:text-[#9CA3AF]">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
-              52-Week High
+
+            {/* 200 DMA */}
+            <span className="flex items-center gap-1.5 text-[#F97316]">
+              <span className="w-2.5 h-0.5 bg-[#F97316] inline-block" />
+              200 DMA: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{legendData?.sma200 ? formatNum2(legendData.sma200) : '--'}</span>
             </span>
-            <span className="flex items-center gap-1.5 text-[#6B7280] dark:text-[#9CA3AF]">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" />
-              50 DMA
-            </span>
-            <span className="flex items-center gap-1.5 text-[#6B7280] dark:text-[#9CA3AF]">
-              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />
-              200 DMA
-            </span>
+
+            {/* ATH */}
+            {data?.high_ath && (
+              <span className="flex items-center gap-1.5 text-[#FACC15]">
+                <span className="w-2.5 h-0.5 border-t-2 border-dashed border-[#FACC15] inline-block" />
+                ATH: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(data.high_ath)}</span>
+              </span>
+            )}
+
+            {/* 52W High (Only if not same as ATH) */}
+            {!isSameHigh && data?.high_52w && (
+              <span className="flex items-center gap-1.5 text-[#A855F7]">
+                <span className="w-2.5 h-0.5 border-t-2 border-dotted border-[#A855F7] inline-block" />
+                52W H: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatNum2(data.high_52w)}</span>
+              </span>
+            )}
           </div>
 
-          <div className="text-[#6B7280] dark:text-[#9CA3AF]">
-            Turnover: <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">₹{data?.turnover_cr || '--'} Cr/day</span>
-          </div>
         </div>
 
         {/* Chart Canvas */}
