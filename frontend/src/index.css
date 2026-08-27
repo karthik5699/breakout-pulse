@@ -30,12 +30,16 @@ body {
   background-color: var(--bg);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.font-mono, .num, td.font-mono, th.font-mono {
-  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  font-feature-settings: "tnum", "zero";
+/* Tabular Numbers Utility for Financial Metrics */
+.tabular-nums,
+.num,
+td.tabular-nums,
+th.tabular-nums {
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "zero";
 }
 
 /* Custom Scrollbars */

@@ -61,7 +61,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
       layout: {
         background: { type: ColorType.Solid, color: isDark ? '#111827' : '#ffffff' },
         textColor: isDark ? '#9CA3AF' : '#6B7280',
-        fontFamily: "'JetBrains Mono', monospace",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       },
       grid: {
         vertLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
@@ -84,7 +84,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
 
     chartRef.current = chart
 
-    // 1. Candlestick Series - High Contrast Semantic Colors
+    // 1. Candlestick Series
     const upColor = isDark ? '#22c55e' : '#16a34a'
     const downColor = isDark ? '#ef4444' : '#dc2626'
 
@@ -220,17 +220,17 @@ export default function ChartModal({ symbol, onClose, theme }) {
         <div className="px-5 py-3.5 border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between gap-4 bg-white dark:bg-[#111827]">
           
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="w-10 h-10 rounded-xl bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center font-mono font-bold text-sm shadow-xs">
+            <div className="w-10 h-10 rounded-xl bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center font-semibold text-sm shadow-xs">
               {symbol.slice(0, 2)}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-[#111827] dark:text-[#F9FAFB] font-mono tracking-tight">
+                <h2 className="text-lg font-semibold text-[#111827] dark:text-[#F9FAFB] tracking-tight">
                   {symbol}
                 </h2>
-                <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF] font-sans">NSE Equities</span>
+                <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF]">NSE Equities</span>
               </div>
-              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-sm font-sans">
+              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-sm font-normal">
                 {data?.name || symbol}
               </p>
             </div>
@@ -240,20 +240,20 @@ export default function ChartModal({ symbol, onClose, theme }) {
           {data && (
             <div className="hidden lg:flex items-center gap-4 bg-[#F9FAFB] dark:bg-[#161D27] px-3.5 py-2 rounded-xl text-xs border border-[#E5E7EB] dark:border-[#1F2937]">
               <div>
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-sans font-medium">52W High:</span>
-                <span className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">
+                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">52W High:</span>
+                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
                   ₹{data.high_52w} ({data.dist_to_52w_high_pct >= 0 ? `+${data.dist_to_52w_high_pct}%` : `${data.dist_to_52w_high_pct}%`})
                 </span>
               </div>
               <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-sans font-medium">All-Time High:</span>
-                <span className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">
+                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">All-Time High:</span>
+                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
                   ₹{data.high_ath} ({data.dist_to_ath_pct >= 0 ? `+${data.dist_to_ath_pct}%` : `${data.dist_to_ath_pct}%`})
                 </span>
               </div>
               <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-sans font-medium">Volume Multiple:</span>
-                <span className={`font-mono font-bold flex items-center gap-1 ${
+                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[10px] uppercase font-medium">Volume Multiple:</span>
+                <span className={`font-semibold tabular-nums flex items-center gap-1 ${
                   data.is_volume_confirmed ? 'text-[#16A34A] dark:text-[#22C55E]' : 'text-[#6B7280] dark:text-[#9CA3AF]'
                 }`}>
                   <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
@@ -275,7 +275,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
 
         {/* Legend Bar */}
         <div className="px-5 py-2 bg-[#F9FAFB] dark:bg-[#111827] border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between text-[11px] text-[#6B7280] dark:text-[#9CA3AF] flex-wrap gap-2">
-          <div className="flex items-center gap-4 flex-wrap font-medium font-sans">
+          <div className="flex items-center gap-4 flex-wrap font-medium">
             <span className="flex items-center gap-1.5 text-[#6B7280] dark:text-[#9CA3AF]">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
               All-Time High
@@ -294,8 +294,8 @@ export default function ChartModal({ symbol, onClose, theme }) {
             </span>
           </div>
 
-          <div className="text-[#6B7280] dark:text-[#9CA3AF] font-sans">
-            Turnover: <span className="font-mono text-[#111827] dark:text-[#F9FAFB]">₹{data?.turnover_cr || '--'} Cr/day</span>
+          <div className="text-[#6B7280] dark:text-[#9CA3AF]">
+            Turnover: <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">₹{data?.turnover_cr || '--'} Cr/day</span>
           </div>
         </div>
 

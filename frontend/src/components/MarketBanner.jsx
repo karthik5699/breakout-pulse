@@ -53,8 +53,8 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
   }
 
   return (
-    <div className="mb-6 space-y-3 font-sans">
-      {/* Cards Row - Minimalist Neutral Architecture */}
+    <div className="mb-6 space-y-3">
+      {/* Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {cards.map((c) => {
           const Icon = c.icon
@@ -70,13 +70,13 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${
-                  isActive ? 'text-[#111827] dark:text-[#F9FAFB]' : 'text-[#6B7280] dark:text-[#9CA3AF]'
+                <span className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${
+                  isActive ? 'font-semibold text-[#111827] dark:text-[#F9FAFB]' : 'font-medium text-[#6B7280] dark:text-[#9CA3AF]'
                 }`}>
                   <Icon className="w-4 h-4 text-[#9CA3AF]" />
                   {c.label}
                 </span>
-                <span className="text-xl font-bold font-mono text-[#111827] dark:text-[#F9FAFB]">
+                <span className="text-xl font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
                   {c.count}
                 </span>
               </div>
@@ -95,27 +95,27 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
           <div className="flex items-center gap-1.5 font-normal">
             <Calendar className="w-3.5 h-3.5 text-[#9CA3AF]" />
             <span>Latest Market Data:</span>
-            <span className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">
+            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
               {formatDataDate(stats.latest_data_date, stats.last_scanned)}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 font-normal">
             <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span><strong className="font-mono font-bold text-[#111827] dark:text-[#F9FAFB]">{stats.confirmed_volume_count || 0}</strong> Volume Confirmed Setups</span>
+            <span><strong className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats.confirmed_volume_count || 0}</strong> Volume Confirmed Setups</span>
           </div>
 
           <div className="flex items-center gap-1.5 font-normal">
             <Clock className="w-3.5 h-3.5 text-[#9CA3AF]" />
             <span>Last Scanned:</span>
-            <span className="font-mono font-semibold text-[#111827] dark:text-[#F9FAFB]">
+            <span className="font-medium tabular-nums text-[#111827] dark:text-[#F9FAFB]">
               {stats.last_scanned || 'Ready for Scan'}
             </span>
           </div>
         </div>
 
-        <div className="text-[#6B7280] dark:text-[#9CA3AF]">
-          Universe: <span className="font-mono font-semibold text-[#111827] dark:text-[#F9FAFB]">{stats.cached_stocks}</span> / <span className="font-mono font-semibold text-[#111827] dark:text-[#F9FAFB]">{stats.total_stocks}</span> NSE stocks tracked
+        <div className="text-[#6B7280] dark:text-[#9CA3AF] font-normal">
+          Universe: <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats.cached_stocks}</span> / <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats.total_stocks}</span> NSE stocks tracked
         </div>
       </div>
     </div>
