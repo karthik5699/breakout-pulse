@@ -61,6 +61,17 @@ def export_cache():
         prev_close = closes[-2] if n_bars >= 2 else opens[-1]
         change_pct = round(((current_price - prev_close) / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
 
+        # Liquidity Check (last 20 days)
+        last_20_vols = volumes[-min(20, n_bars):]
+        last_20_closes = closes[-min(20, n_bars):]
+        active_days = sum(1 for v in last_20_vols if v > 0)
+        
+        turnovers_20 = [c * v for c, v in zip(last_20_closes, last_20_vols)]
+        turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2) if turnovers_20 else 0.0
+
+        # Require >= 15 active non-zero trading days and >= ₹25 Lakhs/day turnover
+        passes_liquidity = bool(active_days >= 15 and turnover_cr >= 0.25)
+
         # Highs
         high_ath = max(highs)
         w52_bars = min(n_bars, 252)
@@ -77,21 +88,18 @@ def export_cache():
         sma200_bars = min(n_bars, 200)
         sma200 = sum(closes[-sma200_bars:]) / sma200_bars
 
-        # Volume Multiple
+        # Volume Multiple: Require >= 5,000 shares for confirmed institutional volume
         vol_50_bars = min(n_bars, 50)
         vol_sma50 = sum(volumes[-vol_50_bars:]) / vol_50_bars if vol_50_bars > 0 else 1.0
         vol_multiple = round(volumes[-1] / vol_sma50, 2) if vol_sma50 > 0 else 1.0
-        is_vol_confirmed = bool(vol_multiple >= 1.4)
-
-        # Turnover (20d avg)
-        t_bars = min(n_bars, 20)
-        turnovers = [closes[-i] * volumes[-i] for i in range(1, t_bars + 1)]
-        turnover_cr = round((sum(turnovers) / t_bars) / 1e7, 2) if t_bars > 0 else 0.0
+        is_vol_confirmed = bool(passes_liquidity and vol_multiple >= 1.4 and volumes[-1] >= 5000)
 
         # Status categorization:
-        # Require n_bars >= 1000 for verified multi-year ATH. Otherwise it is a 52-Week High setup!
         is_recent = bool(n_bars < 500)
-        if dist_to_ath >= -5.0 and dist_to_ath <= 2.0 and n_bars >= 1000:
+        if not passes_liquidity:
+            status = "ILLIQUID"
+            status_label = "Illiquid / Inactive"
+        elif dist_to_ath >= -5.0 and dist_to_ath <= 2.0 and n_bars >= 1000:
             status = "NEAR_ATH"
             status_label = "All-Time High (ATH)"
         elif is_recent and dist_to_52w >= -10.0:
@@ -108,7 +116,7 @@ def export_cache():
             status_label = "Consolidating"
 
         # Stage 2 Trend Check: Price > 50 SMA > 200 SMA
-        passes_trend = bool(current_price > sma50 > sma200 and n_bars >= 100)
+        passes_trend = bool(passes_liquidity and current_price > sma50 > sma200 and n_bars >= 100)
 
         name = stock_names.get(sym, sym)
 
@@ -130,13 +138,13 @@ def export_cache():
             "rs_rating_smallmid": 75,
             "rs_rating_nifty50": 70,
             "turnover_cr": turnover_cr,
-            "active_days_20d": 20,
+            "active_days_20d": active_days,
             "trading_days": n_bars,
             "is_recently_listed": is_recent,
             "sma50": round(sma50, 2),
             "sma200": round(sma200, 2),
             "passes_trend_check": passes_trend,
-            "passes_liquidity": True
+            "passes_liquidity": passes_liquidity
         }
         results.append(item)
 
