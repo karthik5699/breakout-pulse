@@ -250,9 +250,9 @@ class BhavcopyEngine:
             """, records)
             conn.commit()
 
-        # Recalculate momentum screener and update cache
+        # Recalculate momentum screener and update cache strictly as of trade_date
         from backend.app.export_seed import export_cache
-        export_cache()
+        export_cache(as_of_date=trade_date)
         logger.info(f"Ingested {len(parsed_stocks)} stocks for date {trade_date} and updated screener cache.")
         return len(parsed_stocks)
 

@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 import sqlite3
 import json
 import os
 import math
+from typing import Optional
 from datetime import datetime
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -10,7 +10,7 @@ DB_PATH = os.path.join(DATA_DIR, "market_data.db")
 CSV_PATH = os.path.join(DATA_DIR, "nse_universe.csv")
 OUTPUT_PATH = os.path.join(DATA_DIR, "screener_cache.json")
 
-def export_cache():
+def export_cache(as_of_date: Optional[str] = None):
     if not os.path.exists(DB_PATH):
         print("No market_data.db found to export.")
         return
@@ -30,18 +30,28 @@ def export_cache():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    if as_of_date:
+        cursor.execute("DELETE FROM daily_candles WHERE date > ?", (as_of_date,))
+        conn.commit()
+
     cursor.execute("SELECT DISTINCT symbol FROM daily_candles")
     symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
-    print(f"Exporting cache for {len(symbols)} symbols from SQLite...")
+    print(f"Exporting cache for {len(symbols)} symbols from SQLite as of {as_of_date or 'latest'}...")
 
     results = []
-    latest_date_overall = "2026-08-25"
+    latest_date_overall = as_of_date or "2026-08-25"
 
     for sym in symbols:
-        cursor.execute(
-            "SELECT date, open, high, low, close, volume FROM daily_candles WHERE symbol = ? ORDER BY date ASC",
-            (sym,)
-        )
+        if as_of_date:
+            cursor.execute(
+                "SELECT date, open, high, low, close, volume FROM daily_candles WHERE symbol = ? AND date <= ? ORDER BY date ASC",
+                (sym, as_of_date)
+            )
+        else:
+            cursor.execute(
+                "SELECT date, open, high, low, close, volume FROM daily_candles WHERE symbol = ? ORDER BY date ASC",
+                (sym,)
+            )
         rows = cursor.fetchall()
         if not rows or len(rows) < 15:
             continue
