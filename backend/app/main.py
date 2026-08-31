@@ -81,53 +81,59 @@ def _run_scan_job():
         # 1. Fetch benchmarks
         sm_bench, n50_bench = data_engine.fetch_benchmarks(period="5y")
         
-        # 2. Batch Download using yf.download for 50x speed & zero rate limits
-        chunk_size = 50
+        # 2. Batch Download using yf.download in 100-ticker chunks with polite delay
+        chunk_size = 100
         chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
         
+        import time
         for idx, chunk in enumerate(chunks):
-            try:
-                tickers_str = " ".join([f"{s}.NS" for s in chunk])
-                batch_df = yf.download(
-                    tickers_str, 
-                    period="1mo", 
-                    interval="1d", 
-                    auto_adjust=True, 
-                    group_by="ticker", 
-                    threads=True,
-                    progress=False
-                )
-                
-                # Save each symbol into SQLite
-                if batch_df is not None and not batch_df.empty:
-                    for sym in chunk:
-                        yf_sym = f"{sym}.NS"
-                        try:
-                            if len(chunk) == 1:
-                                sym_df = batch_df
-                            elif hasattr(batch_df.columns, 'levels') and yf_sym in batch_df.columns.levels[0]:
-                                sym_df = batch_df[yf_sym].dropna(how="all")
-                            else:
-                                continue
-                            
-                            if sym_df is not None and len(sym_df) > 0:
-                                sym_df = sym_df.reset_index()
-                                date_col = "Date" if "Date" in sym_df.columns else "Datetime"
-                                sym_df["date"] = pd.to_datetime(sym_df[date_col]).dt.strftime("%Y-%m-%d")
-                                for col in ["open", "high", "low", "close", "volume"]:
-                                    cap = col.capitalize()
-                                    if cap in sym_df.columns:
-                                        sym_df[col] = sym_df[cap].astype(float)
-                                clean_df = sym_df[["date", "open", "high", "low", "close", "volume"]].dropna().drop_duplicates("date")
-                                if len(clean_df) > 0:
-                                    data_engine._save_candles_to_db(sym, clean_df)
-                        except Exception as ex:
-                            logger.debug(f"Error saving batch {sym}: {ex}")
-            except Exception as e:
-                logger.warning(f"Batch fetch error for chunk {idx}: {e}")
+            tickers_str = " ".join([f"{s}.NS" for s in chunk])
+            
+            for attempt in range(1, 3):
+                try:
+                    batch_df = yf.download(
+                        tickers_str, 
+                        period="1mo", 
+                        interval="1d", 
+                        auto_adjust=True, 
+                        group_by="ticker", 
+                        threads=True,
+                        progress=False
+                    )
+                    
+                    # Save each symbol into SQLite
+                    if batch_df is not None and not batch_df.empty:
+                        for sym in chunk:
+                            yf_sym = f"{sym}.NS"
+                            try:
+                                if len(chunk) == 1:
+                                    sym_df = batch_df
+                                elif hasattr(batch_df.columns, 'levels') and yf_sym in batch_df.columns.levels[0]:
+                                    sym_df = batch_df[yf_sym].dropna(how="all")
+                                else:
+                                    continue
+                                
+                                if sym_df is not None and len(sym_df) > 0:
+                                    sym_df = sym_df.reset_index()
+                                    date_col = "Date" if "Date" in sym_df.columns else "Datetime"
+                                    sym_df["date"] = pd.to_datetime(sym_df[date_col]).dt.strftime("%Y-%m-%d")
+                                    for col in ["open", "high", "low", "close", "volume"]:
+                                        cap = col.capitalize()
+                                        if cap in sym_df.columns:
+                                            sym_df[col] = sym_df[cap].astype(float)
+                                    clean_df = sym_df[["date", "open", "high", "low", "close", "volume"]].dropna().drop_duplicates("date")
+                                    if len(clean_df) > 0:
+                                        data_engine._save_candles_to_db(sym, clean_df)
+                            except Exception as ex:
+                                logger.debug(f"Error saving batch {sym}: {ex}")
+                        break  # Successful download, exit retry loop
+                except Exception as e:
+                    logger.warning(f"Batch fetch error for chunk {idx} (attempt {attempt}): {e}")
+                    time.sleep(2.0)
             
             scan_state["progress"] += len(chunk)
             scan_state["current_symbol"] = chunk[-1]
+            time.sleep(1.0)  # Polite 1s breather to prevent Yahoo Finance 429 rate limits
 
         # 3. Load all updated DataFrames from SQLite
         stock_dfs = {}
