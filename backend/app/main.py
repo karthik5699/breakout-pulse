@@ -102,11 +102,6 @@ def _run_scan_job():
     finally:
         scan_state["is_scanning"] = False
 
-    except Exception as e:
-        logger.error(f"Error during universe scan: {e}", exc_info=True)
-    finally:
-        scan_state["is_scanning"] = False
-
 
 def _recompute_from_sqlite():
     """Recalculates all cached SQLite stocks using ScreenerEngine."""
