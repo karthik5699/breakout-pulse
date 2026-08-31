@@ -207,11 +207,11 @@ def get_universe_stats():
     if not results:
         results = _recompute_from_sqlite()
 
-    near_52w = sum(1 for x in results if x.status == "NEAR_52W_HIGH")
-    at_52w = sum(1 for x in results if x.status == "AT_52W_HIGH")
-    near_ath = sum(1 for x in results if x.status == "NEAR_ATH")
-    recent_listing = sum(1 for x in results if x.status == "RECENT_LISTING")
-    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and x.status in ("NEAR_52W_HIGH", "AT_52W_HIGH", "NEAR_ATH", "RECENT_LISTING"))
+    near_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -10.0)
+    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5)
+    near_ath = sum(1 for x in results if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000)
+    recent_listing = sum(1 for x in results if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0)
+    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and x.dist_to_52w_high_pct >= -10.0)
 
     # Small/Midcap Benchmark Trend
     sm_df = data_engine.get_cached_candles(BENCHMARK_SMALLMID)
@@ -264,15 +264,19 @@ def get_screened_stocks(
 
     filtered = results
 
-    # 1. Tab filtering
+    # 1. Tab filtering using direct distance metrics
     if tab == "near_52w":
-        filtered = [x for x in filtered if x.status in ("NEAR_52W_HIGH", "AT_52W_HIGH")]
+        # All stocks within 10% of 52-Week High
+        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -10.0]
     elif tab == "breakout_52w":
-        filtered = [x for x in filtered if x.status == "AT_52W_HIGH"]
+        # Stocks actively breaking out of 52-Week High (>= -0.5%)
+        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5]
     elif tab == "ath":
-        filtered = [x for x in filtered if x.status == "NEAR_ATH"]
+        # Stocks within 5% of verified multi-year All-Time High
+        filtered = [x for x in filtered if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000]
     elif tab == "recent_listings":
-        filtered = [x for x in filtered if x.status == "RECENT_LISTING"]
+        # Recent listings (<2 years) trading within 10% of their high
+        filtered = [x for x in filtered if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0]
 
     # 2. Volume confirmation filter
     if volume_confirmed_only and tab != "all":

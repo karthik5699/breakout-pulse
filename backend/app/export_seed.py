@@ -88,15 +88,16 @@ def export_cache():
         turnovers = [closes[-i] * volumes[-i] for i in range(1, t_bars + 1)]
         turnover_cr = round((sum(turnovers) / t_bars) / 1e7, 2) if t_bars > 0 else 0.0
 
-        # Status categorization: MUST strictly be within proximity thresholds
+        # Status categorization:
+        # Require n_bars >= 1000 for verified multi-year ATH. Otherwise it is a 52-Week High setup!
         is_recent = bool(n_bars < 500)
-        if dist_to_ath >= -5.0 and dist_to_ath <= 2.0 and not is_recent:
+        if dist_to_ath >= -5.0 and dist_to_ath <= 2.0 and n_bars >= 1000:
             status = "NEAR_ATH"
             status_label = "All-Time High (ATH)"
         elif is_recent and dist_to_52w >= -10.0:
             status = "RECENT_LISTING"
             status_label = "Recent Listing (<2Y)"
-        elif dist_to_52w >= -0.5 and not is_recent:
+        elif dist_to_52w >= -0.5:
             status = "AT_52W_HIGH"
             status_label = "52-Week Breakout"
         elif dist_to_52w >= -10.0:
