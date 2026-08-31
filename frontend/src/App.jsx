@@ -6,7 +6,7 @@ import StockTable from './components/StockTable'
 import StockGrid from './components/StockGrid'
 import ChartModal from './components/ChartModal'
 import CsvUploader from './components/CsvUploader'
-import { RefreshCw, CheckCircle2 } from 'lucide-react'
+import { RefreshCw, CheckCircle2, Info } from 'lucide-react'
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
@@ -83,57 +83,37 @@ export default function App() {
   }, [activeTab, volumeConfirmedOnly, trendOnly, searchQuery])
 
   // Scan status polling and notification triggers
-  useEffect(() => {
-    const checkStatus = () => {
-      fetch('/api/scan-status')
-        .then((res) => res.json())
-        .then((data) => {
-          setScanStatus(data)
-
-          // If scan just started
-          if (data.is_scanning && !wasScanningRef.current) {
-            wasScanningRef.current = true
-            setToast({
-              type: 'info',
-              message: 'Daily market scan started for NSE universe...'
-            })
-          }
-
-          // If scan just completed
-          if (!data.is_scanning && wasScanningRef.current) {
-            wasScanningRef.current = false
-            setToast({
-              type: 'success',
-              message: 'Scan complete. Dashboard updated with latest data.'
-            })
-            setTimeout(() => setToast(null), 6000)
-            fetchStats()
-            fetchStocks()
-          }
-
-          if (data.is_scanning) {
-            setTimeout(checkStatus, 1500)
-          }
-        })
-        .catch(() => {})
-    }
-
-    checkStatus()
-    const interval = setInterval(checkStatus, 5000)
-    return () => clearInterval(interval)
-  }, [])
-
   const handleTriggerScan = async () => {
     try {
-      await fetch('/api/scan', { method: 'POST' })
-      setScanStatus((prev) => ({ ...prev, is_scanning: true }))
-      wasScanningRef.current = true
       setToast({
         type: 'info',
-        message: 'Daily market scan started for NSE universe...'
+        message: "Checking official NSE servers for today's Bhavcopy..."
       })
+      const res = await fetch('/api/scan', { method: 'POST' })
+      const data = await res.json()
+      
+      await fetchStats()
+      await fetchStocks()
+
+      if (data.is_today_available) {
+        setToast({
+          type: 'success',
+          message: data.message || "Today's official NSE Bhavcopy successfully downloaded and loaded!"
+        })
+      } else {
+        setToast({
+          type: 'info',
+          message: data.message || "Today's official Bhavcopy is not yet released by NSE (typically published around 3:45 PM – 4:30 PM IST). Displaying latest available session data."
+        })
+      }
+      setTimeout(() => setToast(null), 8000)
     } catch (err) {
       console.error('Failed to trigger scan:', err)
+      setToast({
+        type: 'info',
+        message: 'Could not complete Bhavcopy check.'
+      })
+      setTimeout(() => setToast(null), 5000)
     }
   }
 
@@ -163,9 +143,9 @@ export default function App() {
           }`}>
             <div className="flex items-center gap-2">
               {toast.type === 'info' ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-[#9CA3AF]" />
+                <Info className="w-4 h-4 text-[#8069BF] shrink-0" />
               ) : (
-                <CheckCircle2 className="w-4 h-4 text-[#16A34A] dark:text-[#22C55E]" />
+                <CheckCircle2 className="w-4 h-4 text-[#16A34A] dark:text-[#22C55E] shrink-0" />
               )}
               <span>{toast.message}</span>
             </div>

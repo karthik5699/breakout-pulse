@@ -1,5 +1,5 @@
 import React from 'react'
-import { Crown, Target, Flame, Sparkles, Clock, Calendar } from 'lucide-react'
+import { Crown, Target, Flame, Sparkles, Calendar } from 'lucide-react'
 
 export default function MarketBanner({ stats, activeTab, setActiveTab }) {
   if (!stats) return null
@@ -8,7 +8,7 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
     {
       id: 'ath',
       label: 'All-Time High (ATH)',
-      sub: 'Within ±5% of ATH',
+      sub: 'Within ±10% of ATH',
       count: stats.near_ath_count || 0,
       icon: Crown
     },
@@ -28,19 +28,9 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
     }
   ]
 
-  const formatDataDate = (dateStr, lastScanned) => {
+  const formatDataDate = (dateStr) => {
     if (dateStr && typeof dateStr === 'string' && dateStr.includes('-')) {
       const parts = dateStr.split('-')
-      if (parts.length === 3) {
-        const [y, m, d] = parts
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        const monthName = months[parseInt(m, 10) - 1] || m
-        return `${parseInt(d, 10)} ${monthName} ${y}`
-      }
-    }
-    if (lastScanned && typeof lastScanned === 'string' && lastScanned.includes('-')) {
-      const datePart = lastScanned.split(' ')[0]
-      const parts = datePart.split('-')
       if (parts.length === 3) {
         const [y, m, d] = parts
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -63,25 +53,32 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
             <button
               key={c.id}
               onClick={() => setActiveTab(c.id)}
-              className={`text-left p-4 rounded-2xl transition-all border ${
+              className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between ${
                 isActive
-                  ? 'bg-[#F3F4F6] dark:bg-[#1F2937] border-transparent shadow-none'
-                  : 'bg-white dark:bg-[#111827] border-[#E5E7EB] dark:border-[#1F2937] hover:border-[#D1D5DB] dark:hover:border-[#374151]'
+                  ? 'bg-white dark:bg-[#161D27] border-[#8069BF] shadow-sm ring-1 ring-[#8069BF]/30'
+                  : 'bg-white dark:bg-[#111827] border-[#E5E7EB] dark:border-[#1F2937] hover:border-[#8069BF]/40'
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${
-                  isActive ? 'font-semibold text-[#111827] dark:text-[#F9FAFB]' : 'font-medium text-[#6B7280] dark:text-[#9CA3AF]'
-                }`}>
-                  <Icon className="w-4 h-4 text-[#9CA3AF]" />
+                <span className="text-xs font-medium text-[#6B7280] dark:text-[#9CA3AF]">
                   {c.label}
                 </span>
-                <span className="text-xl font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-                  {c.count}
-                </span>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isActive
+                    ? 'bg-[#8069BF]/10 text-[#8069BF]'
+                    : 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#6B7280] dark:text-[#9CA3AF]'
+                }`}>
+                  <Icon className="w-4 h-4" />
+                </div>
               </div>
-              <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] truncate font-normal">
-                {c.sub}
+
+              <div>
+                <div className="text-2xl font-bold tracking-tight tabular-nums text-[#111827] dark:text-[#F9FAFB]">
+                  {c.count}
+                </div>
+                <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] mt-0.5 font-normal">
+                  {c.sub}
+                </div>
               </div>
             </button>
           )
@@ -96,21 +93,13 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
             <Calendar className="w-3.5 h-3.5 text-[#9CA3AF]" />
             <span>Latest Market Data:</span>
             <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-              {formatDataDate(stats.latest_data_date, stats.last_scanned)}
+              {formatDataDate(stats.latest_data_date)}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 font-normal">
             <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
             <span><strong className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats.confirmed_volume_count || 0}</strong> Volume Confirmed Setups</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 font-normal">
-            <Clock className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span>Last Scanned:</span>
-            <span className="font-medium tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-              {stats.last_scanned || 'Ready for Scan'}
-            </span>
           </div>
         </div>
 

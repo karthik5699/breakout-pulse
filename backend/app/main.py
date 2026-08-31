@@ -47,6 +47,8 @@ scan_state = {
     "current_symbol": "",
     "last_scanned": None,
     "latest_data_date": None,
+    "scan_message": None,
+    "scan_status_type": "info",
     "cached_results": []
 }
 
@@ -60,7 +62,7 @@ def _load_initial_cache():
                 items = [StockScreenerItem(**x) for x in payload.get("results", [])]
                 scan_state["cached_results"] = items
                 scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-25")
+                scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-28")
                 logger.info(f"Loaded {len(items)} pre-calculated stocks from {CACHE_JSON_PATH}")
         except Exception as e:
             logger.warning(f"Could not load pre-seeded cache: {e}")
@@ -77,26 +79,18 @@ def _run_scan_job():
     
     try:
         from backend.app.bhavcopy_engine import bhavcopy_engine
-
-        # Step 1: Ingest Official NSE Bhavcopy (0.3s exchange-wide sync, 0 rate limits, 0 yfinance calls)
-        try:
-            stocks, t_date = bhavcopy_engine.fetch_online_bhavcopy()
-            if stocks:
-                bhavcopy_engine.ingest_stocks_to_db(stocks, t_date)
-                _load_initial_cache()
-                scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                scan_state["latest_data_date"] = t_date
-                scan_state["progress"] = scan_state["total"]
-                logger.info(f"Official NSE Bhavcopy scan completed successfully for {t_date} ({len(stocks)} stocks).")
-                return
-        except Exception as e:
-            logger.info(f"Online Bhavcopy download not ready yet: {e}")
-            _load_initial_cache()
-            scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            scan_state["progress"] = scan_state["total"]
-
+        result = bhavcopy_engine.sync_daily_market()
+        _load_initial_cache()
+        scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        scan_state["progress"] = scan_state["total"]
+        scan_state["scan_message"] = result["message"]
+        scan_state["scan_status_type"] = "success" if result["is_today_available"] else "info"
+        if result.get("trade_date") and result["is_today_available"]:
+            scan_state["latest_data_date"] = result["trade_date"]
     except Exception as e:
         logger.error(f"Error during Bhavcopy scan: {e}", exc_info=True)
+        scan_state["scan_message"] = f"Scan error: {e}"
+        scan_state["scan_status_type"] = "error"
     finally:
         scan_state["is_scanning"] = False
 
@@ -139,7 +133,8 @@ def health_check():
 
 
 def _is_ath(x: StockScreenerItem) -> bool:
-    return bool(x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
+    # Within +-10% of ATH (Early setups & active breakouts)
+    return bool(x.dist_to_ath_pct >= -10.0 and x.dist_to_ath_pct <= 10.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
 
 def _is_recent_listing(x: StockScreenerItem) -> bool:
     return bool((x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
@@ -308,13 +303,26 @@ def get_stock_chart(symbol: str):
 
 
 @app.post("/api/scan")
-def trigger_scan(background_tasks: BackgroundTasks):
+def trigger_scan():
     global scan_state
     if scan_state["is_scanning"]:
-        return {"status": "already_running", "progress": scan_state["progress"], "total": scan_state["total"]}
+        return {"status": "already_running", "message": "Scan already in progress."}
     
-    background_tasks.add_task(_run_scan_job)
-    return {"status": "started", "message": "Official Bhavcopy / Market scan started in background."}
+    from backend.app.bhavcopy_engine import bhavcopy_engine
+    result = bhavcopy_engine.sync_daily_market()
+    _load_initial_cache()
+    scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    scan_state["scan_message"] = result["message"]
+    scan_state["scan_status_type"] = "success" if result["is_today_available"] else "info"
+    if result.get("trade_date") and result["is_today_available"]:
+        scan_state["latest_data_date"] = result["trade_date"]
+    
+    return {
+        "status": result["status"],
+        "is_today_available": result["is_today_available"],
+        "message": result["message"],
+        "stocks_updated": result.get("stocks_updated", 0)
+    }
 
 
 @app.get("/api/scan-status")
@@ -324,7 +332,9 @@ def get_scan_status():
         "progress": scan_state["progress"],
         "total": scan_state["total"],
         "current_symbol": scan_state["current_symbol"],
-        "last_scanned": scan_state["last_scanned"]
+        "last_scanned": scan_state["last_scanned"],
+        "scan_message": scan_state.get("scan_message"),
+        "scan_status_type": scan_state.get("scan_status_type", "info")
     }
 
 

@@ -109,7 +109,7 @@ def export_cache(as_of_date: Optional[str] = None):
         if not passes_liquidity:
             status = "ILLIQUID"
             status_label = "Illiquid / Inactive"
-        elif dist_to_ath >= -5.0 and dist_to_ath <= 2.0 and n_bars >= 1000:
+        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 1000:
             status = "NEAR_ATH"
             status_label = "All-Time High (ATH)"
         elif is_recent and dist_to_52w >= -10.0:
