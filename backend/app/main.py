@@ -60,10 +60,13 @@ def _load_initial_cache():
             with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
                 items = [StockScreenerItem(**x) for x in payload.get("results", [])]
-                scan_state["cached_results"] = items
-                scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-28")
-                logger.info(f"Loaded {len(items)} pre-calculated stocks from {CACHE_JSON_PATH}")
+                if items:
+                    scan_state["cached_results"] = items
+                    scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-28")
+                    logger.info(f"Loaded {len(items)} pre-calculated stocks from {CACHE_JSON_PATH}")
+                else:
+                    logger.warning(f"Cache file at {CACHE_JSON_PATH} had 0 items; preserving in-memory cached results ({len(scan_state.get('cached_results', []))} stocks).")
         except Exception as e:
             logger.warning(f"Could not load pre-seeded cache: {e}")
 

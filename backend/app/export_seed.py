@@ -160,6 +160,10 @@ def export_cache(as_of_date: Optional[str] = None):
 
     conn.close()
 
+    if len(results) < 50:
+        print(f"Skipping cache overwrite: only {len(results)} stocks computed from SQLite (insufficient database history). Existing cache preserved.")
+        return 0
+
     payload = {
         "last_scanned": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "latest_data_date": latest_date_overall,
@@ -171,6 +175,8 @@ def export_cache(as_of_date: Optional[str] = None):
         json.dump(payload, f)
 
     print(f"Successfully generated {OUTPUT_PATH} with {len(results)} stocks!")
+    return len(results)
 
 if __name__ == "__main__":
     export_cache()
+

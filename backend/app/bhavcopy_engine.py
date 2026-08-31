@@ -245,6 +245,116 @@ class BhavcopyEngine:
             "message": f"Today's ({today.strftime('%d %b %Y')}) official NSE Bhavcopy has not been released yet (typically published around 3:45 PM – 4:30 PM IST). Displaying latest available session data."
         }
 
+    def update_cache_with_bhavcopy(self, parsed_stocks: List[Dict[str, Any]], trade_date: str) -> int:
+        """
+        Incrementally updates screener_cache.json in environments (e.g. Render)
+        where SQLite does not contain full 5-year historical bars.
+        """
+        if not parsed_stocks:
+            return 0
+
+        parsed_map = {s["symbol"].upper(): s for s in parsed_stocks}
+        existing_items = []
+        if os.path.exists(CACHE_JSON_PATH):
+            try:
+                with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                    existing_items = payload.get("results", [])
+            except Exception as e:
+                logger.warning(f"Could not load existing cache for incremental update: {e}")
+
+        if not existing_items:
+            return 0
+
+        updated_results = []
+        updated_count = 0
+
+        for item in existing_items:
+            sym = item.get("symbol", "").upper()
+            if sym in parsed_map:
+                p = parsed_map[sym]
+                new_close = float(p["close"])
+                new_high = float(p["high"])
+                new_low = float(p["low"])
+                new_vol = float(p["volume"])
+                new_turnover = float(p.get("turnover", 0.0))
+
+                prev_close = float(item.get("current_price") or new_close)
+                change_pct = round(((new_close - prev_close) / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
+
+                high_52w = max(float(item.get("high_52w") or new_high), new_high)
+                high_ath = max(float(item.get("high_ath") or new_high), new_high)
+                low_52w = min(float(item.get("low_52w") or new_low), new_low)
+
+                dist_to_52w = round(((new_close - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
+                dist_to_ath = round(((new_close - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
+
+                # Volume multiple estimation
+                old_vol = float(item.get("volume") or 0.0)
+                old_mult = float(item.get("vol_multiple") or 1.0)
+                vol_sma50 = (old_vol / old_mult) if (old_mult > 0 and old_vol > 0) else max(new_vol, 1.0)
+                vol_mult = round(new_vol / vol_sma50, 2) if vol_sma50 > 0 else 1.0
+
+                passes_liq = bool(item.get("passes_liquidity", True))
+                is_vol_confirmed = bool(passes_liq and vol_mult >= 1.4 and new_vol >= 5000)
+                turnover_cr = round(new_turnover / 1e7, 2) if new_turnover > 0 else float(item.get("turnover_cr") or 0.0)
+
+                # Status categorization
+                is_recent = bool(item.get("is_recently_listed", False))
+                n_bars = int(item.get("trading_days") or 500)
+                if not passes_liq:
+                    status = "ILLIQUID"
+                    status_label = "Illiquid / Inactive"
+                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 1000:
+                    status = "NEAR_ATH"
+                    status_label = "All-Time High (ATH)"
+                elif is_recent and dist_to_52w >= -10.0:
+                    status = "RECENT_LISTING"
+                    status_label = "Recent Listing (<2Y)"
+                elif dist_to_52w >= -0.5:
+                    status = "AT_52W_HIGH"
+                    status_label = "52-Week Breakout"
+                elif dist_to_52w >= -10.0:
+                    status = "NEAR_52W_HIGH"
+                    status_label = "Near 52W High"
+                else:
+                    status = "CONSOLIDATING"
+                    status_label = "Consolidating"
+
+                sma50 = item.get("sma50")
+                sma200 = item.get("sma200")
+                passes_trend = bool(passes_liq and sma50 and sma200 and new_close > sma50 > sma200)
+
+                item["current_price"] = round(new_close, 2)
+                item["change_pct"] = change_pct
+                item["volume"] = new_vol
+                item["vol_multiple"] = vol_mult
+                item["is_volume_confirmed"] = is_vol_confirmed
+                item["high_52w"] = round(high_52w, 2)
+                item["high_ath"] = round(high_ath, 2)
+                item["low_52w"] = round(low_52w, 2)
+                item["dist_to_52w_high_pct"] = dist_to_52w
+                item["dist_to_ath_pct"] = dist_to_ath
+                item["turnover_cr"] = turnover_cr
+                item["status"] = status
+                item["status_label"] = status_label
+                item["passes_trend_check"] = passes_trend
+                updated_count += 1
+
+            updated_results.append(item)
+
+        payload = {
+            "last_scanned": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "latest_data_date": trade_date,
+            "total_cached": len(updated_results),
+            "results": updated_results
+        }
+        with open(CACHE_JSON_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        logger.info(f"Incrementally updated screener cache for {updated_count} stocks as of {trade_date}.")
+        return updated_count
+
     def ingest_stocks_to_db(self, parsed_stocks: List[Dict[str, Any]], trade_date: str) -> int:
         """
         Inserts new daily candles into SQLite in a single transaction,
@@ -276,8 +386,13 @@ class BhavcopyEngine:
 
         # Recalculate momentum screener and update cache strictly as of trade_date
         from backend.app.export_seed import export_cache
-        export_cache(as_of_date=trade_date)
+        exported_count = export_cache(as_of_date=trade_date)
+        if not exported_count:
+            # Fallback for cloud instances without full historical database:
+            self.update_cache_with_bhavcopy(parsed_stocks, trade_date)
+            
         logger.info(f"Ingested {len(parsed_stocks)} stocks for date {trade_date} and updated screener cache.")
         return len(parsed_stocks)
 
 bhavcopy_engine = BhavcopyEngine()
+
