@@ -69,102 +69,38 @@ _load_initial_cache()
 
 
 def _run_scan_job():
-    """Background task to fetch and analyze universe stocks using batch downloads."""
+    """Background task to fetch and analyze universe stocks strictly using official NSE Bhavcopy data."""
     global scan_state
     scan_state["is_scanning"] = True
     scan_state["progress"] = 0
+    scan_state["total"] = universe_store.total_count()
     
     try:
-        symbols = universe_store.get_symbols(exclude_be=False)
-        scan_state["total"] = len(symbols)
-        
-        # 1. Fetch benchmarks
-        sm_bench, n50_bench = data_engine.fetch_benchmarks(period="5y")
-        
-        # 2. Batch Download using yf.download in 100-ticker chunks with polite delay
-        chunk_size = 100
-        chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
-        
-        import time
-        for idx, chunk in enumerate(chunks):
-            tickers_str = " ".join([f"{s}.NS" for s in chunk])
-            
-            for attempt in range(1, 3):
-                try:
-                    batch_df = yf.download(
-                        tickers_str, 
-                        period="1mo", 
-                        interval="1d", 
-                        auto_adjust=True, 
-                        group_by="ticker", 
-                        threads=True,
-                        progress=False
-                    )
-                    
-                    # Save each symbol into SQLite
-                    if batch_df is not None and not batch_df.empty:
-                        for sym in chunk:
-                            yf_sym = f"{sym}.NS"
-                            try:
-                                if len(chunk) == 1:
-                                    sym_df = batch_df
-                                elif hasattr(batch_df.columns, 'levels') and yf_sym in batch_df.columns.levels[0]:
-                                    sym_df = batch_df[yf_sym].dropna(how="all")
-                                else:
-                                    continue
-                                
-                                if sym_df is not None and len(sym_df) > 0:
-                                    sym_df = sym_df.reset_index()
-                                    date_col = "Date" if "Date" in sym_df.columns else "Datetime"
-                                    sym_df["date"] = pd.to_datetime(sym_df[date_col]).dt.strftime("%Y-%m-%d")
-                                    for col in ["open", "high", "low", "close", "volume"]:
-                                        cap = col.capitalize()
-                                        if cap in sym_df.columns:
-                                            sym_df[col] = sym_df[cap].astype(float)
-                                    clean_df = sym_df[["date", "open", "high", "low", "close", "volume"]].dropna().drop_duplicates("date")
-                                    if len(clean_df) > 0:
-                                        data_engine._save_candles_to_db(sym, clean_df)
-                            except Exception as ex:
-                                logger.debug(f"Error saving batch {sym}: {ex}")
-                        break  # Successful download, exit retry loop
-                except Exception as e:
-                    logger.warning(f"Batch fetch error for chunk {idx} (attempt {attempt}): {e}")
-                    time.sleep(2.0)
-            
-            scan_state["progress"] += len(chunk)
-            scan_state["current_symbol"] = chunk[-1]
-            time.sleep(1.0)  # Polite 1s breather to prevent Yahoo Finance 429 rate limits
+        from backend.app.bhavcopy_engine import bhavcopy_engine
 
-        # 3. Load all updated DataFrames from SQLite
-        stock_dfs = {}
-        stock_names = {}
-        for sym in symbols:
-            meta = universe_store.get(sym)
-            stock_names[sym] = meta.name if meta else sym
-            updated_df = data_engine.get_cached_candles(sym)
-            if updated_df is not None and len(updated_df) >= 15:
-                stock_dfs[sym] = updated_df
-                
-        # 4. Run full High/ATH analysis
-        if stock_dfs:
-            results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
-            scan_state["cached_results"] = results
+        # Step 1: Ingest Official NSE Bhavcopy (0.3s exchange-wide sync, 0 rate limits, 0 yfinance calls)
+        try:
+            stocks, t_date = bhavcopy_engine.fetch_online_bhavcopy()
+            if stocks:
+                bhavcopy_engine.ingest_stocks_to_db(stocks, t_date)
+                _load_initial_cache()
+                scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                scan_state["latest_data_date"] = t_date
+                scan_state["progress"] = scan_state["total"]
+                logger.info(f"Official NSE Bhavcopy scan completed successfully for {t_date} ({len(stocks)} stocks).")
+                return
+        except Exception as e:
+            logger.info(f"Online Bhavcopy download not ready yet: {e}")
+            # Recompute screener from current database
+            _recompute_from_sqlite()
+            _load_initial_cache()
             scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            scan_state["latest_data_date"] = data_engine.get_latest_data_date()
-            
-            # Save updated cache file
-            try:
-                with open(CACHE_JSON_PATH, "w", encoding="utf-8") as f:
-                    json.dump({
-                        "last_scanned": scan_state["last_scanned"],
-                        "latest_data_date": scan_state["latest_data_date"],
-                        "total_cached": len(results),
-                        "results": [r.model_dump() for r in results]
-                    }, f)
-            except Exception as e:
-                logger.warning(f"Could not persist cache file: {e}")
-                
-            logger.info(f"Scan complete: analyzed {len(stock_dfs)} stocks, computed {len(results)} screener items.")
+            scan_state["progress"] = scan_state["total"]
+
+    except Exception as e:
+        logger.error(f"Error during Bhavcopy scan: {e}", exc_info=True)
+    finally:
+        scan_state["is_scanning"] = False
 
     except Exception as e:
         logger.error(f"Error during universe scan: {e}", exc_info=True)
@@ -213,11 +149,11 @@ def get_universe_stats():
     if not results:
         results = _recompute_from_sqlite()
 
-    near_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -10.0)
-    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5)
-    near_ath = sum(1 for x in results if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000)
-    recent_listing = sum(1 for x in results if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0)
-    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and x.dist_to_52w_high_pct >= -10.0)
+    near_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
+    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and x.passes_liquidity)
+    near_ath = sum(1 for x in results if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
+    recent_listing = sum(1 for x in results if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
+    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
 
     # Small/Midcap Benchmark Trend
     sm_df = data_engine.get_cached_candles(BENCHMARK_SMALLMID)
@@ -268,20 +204,17 @@ def get_screened_stocks(
     if not results:
         results = _recompute_from_sqlite()
 
-    filtered = results
+    # Base liquidity filter: require valid liquidity for all setups
+    filtered = [x for x in results if x.passes_liquidity] if tab != "all" else results
 
     # 1. Tab filtering using direct distance metrics
     if tab == "near_52w":
-        # All stocks within 10% of 52-Week High
         filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -10.0]
     elif tab == "breakout_52w":
-        # Stocks actively breaking out of 52-Week High (>= -0.5%)
         filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5]
     elif tab == "ath":
-        # Stocks within 5% of verified multi-year All-Time High
         filtered = [x for x in filtered if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000]
     elif tab == "recent_listings":
-        # Recent listings (<2 years) trading within 10% of their high
         filtered = [x for x in filtered if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0]
 
     # 2. Volume confirmation filter
@@ -294,7 +227,7 @@ def get_screened_stocks(
 
     # 4. RS filter
     if min_rs > 0:
-        filtered = [x for x in filtered if x.rs_rating_smallmid >= min_rs]
+        filtered = [x for x in filtered if (x.rs_rating_smallmid or 0) >= min_rs]
 
     # 5. Search filter
     if search:
@@ -311,15 +244,12 @@ def get_screened_stocks(
 def get_stock_chart(symbol: str):
     clean_sym = symbol.strip().upper().replace(".NS", "")
     df = data_engine.get_cached_candles(clean_sym)
-    today_str = datetime.now().strftime("%Y-%m-%d")
     
     if df is None or len(df) < 5:
-        # Try fetching live 5y history
-        df = data_engine.fetch_and_cache_symbol(clean_sym, period="5y")
-    elif str(df["date"].iloc[-1]) < today_str:
-        # Update latest candles on-demand so chart always reflects newest market day
-        data_engine.fetch_and_cache_symbol(clean_sym, period="1mo")
-        df = data_engine.get_cached_candles(clean_sym)
+        try:
+            df = data_engine.fetch_and_cache_symbol(clean_sym, period="5y")
+        except Exception:
+            pass
 
     if df is None or len(df) < 5:
         raise HTTPException(status_code=404, detail=f"No chart data available for {symbol}")
@@ -328,7 +258,6 @@ def get_stock_chart(symbol: str):
     meta = universe_store.get(clean_sym)
     name = meta.name if meta else clean_sym
 
-    # High / ATH summary
     c_last = float(computed_df["close"].iloc[-1])
     h_52w = float(computed_df["high_52w"].iloc[-1]) if "high_52w" in computed_df else c_last
     h_ath = float(computed_df["high_ath"].iloc[-1]) if "high_ath" in computed_df else c_last
@@ -338,8 +267,6 @@ def get_stock_chart(symbol: str):
     vol_mult = round(vol_last / vol_sma50, 2) if vol_sma50 > 0 else 1.0
     dist_52w = round(((c_last - h_52w) / h_52w) * 100, 2) if h_52w > 0 else 0.0
     dist_ath = round(((c_last - h_ath) / h_ath) * 100, 2) if h_ath > 0 else 0.0
-
-    # Turnover
     turnover_cr = round(float(computed_df["turnover_sma20"].iloc[-1]) / 1e7, 2) if "turnover_sma20" in computed_df else 0.0
 
     candles = [
@@ -363,7 +290,7 @@ def get_stock_chart(symbol: str):
         high_ath=round(h_ath, 2),
         dist_to_ath_pct=dist_ath,
         volume_multiple=vol_mult,
-        is_volume_confirmed=(vol_mult >= 1.4),
+        is_volume_confirmed=(vol_mult >= 1.4 and vol_last >= 5000),
         turnover_cr=turnover_cr
     )
 
@@ -375,7 +302,7 @@ def trigger_scan(background_tasks: BackgroundTasks):
         return {"status": "already_running", "progress": scan_state["progress"], "total": scan_state["total"]}
     
     background_tasks.add_task(_run_scan_job)
-    return {"status": "started", "message": "Batch market scan started in background."}
+    return {"status": "started", "message": "Official Bhavcopy / Market scan started in background."}
 
 
 @app.get("/api/scan-status")
@@ -387,6 +314,32 @@ def get_scan_status():
         "current_symbol": scan_state["current_symbol"],
         "last_scanned": scan_state["last_scanned"]
     }
+
+
+@app.post("/api/upload-bhavcopy")
+async def upload_bhavcopy(file: UploadFile = File(...)):
+    """Uploads and ingests official NSE Bhavcopy (pd*.csv, sec_bhavdata*.csv, or PR*.zip)."""
+    try:
+        from backend.app.bhavcopy_engine import bhavcopy_engine
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        
+        stocks, t_date = bhavcopy_engine.parse_bhavcopy_file(content, file.filename)
+        if not stocks:
+            raise HTTPException(status_code=400, detail="No valid equity stocks found in uploaded Bhavcopy.")
+            
+        count = bhavcopy_engine.ingest_stocks_to_db(stocks, t_date)
+        _load_initial_cache()
+        return {
+            "status": "success",
+            "message": f"Successfully ingested official NSE Bhavcopy for {t_date}! {count} stocks updated.",
+            "trade_date": t_date,
+            "stocks_updated": count
+        }
+    except Exception as e:
+        logger.error(f"Failed to process uploaded Bhavcopy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/upload-csv")
