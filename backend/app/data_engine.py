@@ -16,6 +16,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DB_PATH = os.path.join(DATA_DIR, "market_data.db")
 
+SEED_GZ_PATH = os.path.join(DATA_DIR, "market_data_seed.db.gz")
+
 BENCHMARK_NIFTY50 = "^NSEI"               # Nifty 50 Index (Largecap broad market context)
 BENCHMARK_SMALLMID = "NIFTYSMLCAP250.NS"   # Nifty Smallcap 250 (Primary Small/Midcap benchmark)
 BENCHMARK_MIDCAP = "NIFTYMIDCAP150.NS"     # Nifty Midcap 150
@@ -24,7 +26,22 @@ class DataEngine:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self._seed_db_if_needed()
         self._init_db()
+
+    def _seed_db_if_needed(self):
+        """If main database does not exist or is empty, unpack from market_data_seed.db.gz."""
+        if os.path.exists(SEED_GZ_PATH):
+            if not os.path.exists(self.db_path) or os.path.getsize(self.db_path) < 10000:
+                import gzip
+                import shutil
+                try:
+                    with gzip.open(SEED_GZ_PATH, 'rb') as f_in:
+                        with open(self.db_path, 'wb') as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                    logger.info(f"Successfully unpacked database from {SEED_GZ_PATH}")
+                except Exception as e:
+                    logger.warning(f"Failed to unpack seed db: {e}")
 
     def _init_db(self):
         """Initializes SQLite tables for candles, scan metadata, and dropped tickers."""

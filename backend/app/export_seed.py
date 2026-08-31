@@ -81,7 +81,7 @@ def export_cache():
         vol_50_bars = min(n_bars, 50)
         vol_sma50 = sum(volumes[-vol_50_bars:]) / vol_50_bars if vol_50_bars > 0 else 1.0
         vol_multiple = round(volumes[-1] / vol_sma50, 2) if vol_sma50 > 0 else 1.0
-        is_vol_confirmed = (vol_multiple >= 1.4)
+        is_vol_confirmed = bool(vol_multiple >= 1.4)
 
         # Turnover (20d avg)
         t_bars = min(n_bars, 20)
@@ -91,14 +91,19 @@ def export_cache():
         # Status categorization
         if n_bars < 500:
             status = "RECENT_LISTING"
+            status_label = "Recent Listing (<2Y)"
         elif dist_to_ath >= -5.0 and dist_to_ath <= 2.0:
             status = "NEAR_ATH"
+            status_label = "All-Time High (ATH)"
         elif dist_to_52w >= -0.5:
             status = "AT_52W_HIGH"
+            status_label = "52-Week Breakout"
         elif dist_to_52w >= -10.0:
             status = "NEAR_52W_HIGH"
+            status_label = "Near 52W High"
         else:
             status = "CONSOLIDATING"
+            status_label = "Consolidating"
 
         # Stage 2 Trend Check: Price > 50 SMA > 200 SMA
         passes_trend = bool(current_price > sma50 > sma200 and n_bars >= 100)
@@ -110,20 +115,26 @@ def export_cache():
             "name": name,
             "current_price": round(current_price, 2),
             "change_pct": change_pct,
-            "high_52w": round(high_52w, 2),
-            "dist_to_52w_high_pct": dist_to_52w,
-            "high_ath": round(high_ath, 2),
-            "dist_to_ath_pct": dist_to_ath,
+            "volume": float(volumes[-1]),
             "vol_multiple": vol_multiple,
             "is_volume_confirmed": is_vol_confirmed,
-            "turnover_cr": turnover_cr,
+            "status": status,
+            "status_label": status_label,
+            "high_52w": round(high_52w, 2),
+            "low_52w": round(low_52w, 2),
+            "high_ath": round(high_ath, 2),
+            "dist_to_52w_high_pct": dist_to_52w,
+            "dist_to_ath_pct": dist_to_ath,
             "rs_rating_smallmid": 75,
             "rs_rating_nifty50": 70,
+            "turnover_cr": turnover_cr,
+            "active_days_20d": 20,
+            "trading_days": n_bars,
+            "is_recently_listed": bool(n_bars < 500),
+            "sma50": round(sma50, 2),
+            "sma200": round(sma200, 2),
             "passes_trend_check": passes_trend,
-            "status": status,
-            "sma_50": round(sma50, 2),
-            "sma_200": round(sma200, 2),
-            "bars_count": n_bars
+            "passes_liquidity": True
         }
         results.append(item)
 

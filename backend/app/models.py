@@ -52,47 +52,39 @@ class StockScreenerItem(BaseModel):
     name: str
     current_price: float
     change_pct: float
-    volume: float
+    volume: Optional[float] = 0.0
     vol_multiple: float
     is_volume_confirmed: bool       # True = 🔥, False = ⚠️
     status: str                     # NEAR_52W_HIGH, AT_52W_HIGH, NEAR_ATH, RECENT_LISTING, OTHER
-    status_label: str
+    status_label: Optional[str] = ""
     high_52w: float
-    low_52w: float
+    low_52w: Optional[float] = 0.0
     high_ath: float
     dist_to_52w_high_pct: float
     dist_to_ath_pct: float
-    rs_rating_smallmid: int
-    rs_rating_nifty50: int
-    turnover_cr: float
-    active_days_20d: int
-    trading_days: int
-    is_recently_listed: bool
+    rs_rating_smallmid: Optional[int] = 75
+    rs_rating_nifty50: Optional[int] = 70
+    turnover_cr: Optional[float] = 0.0
+    active_days_20d: Optional[int] = 20
+    trading_days: Optional[int] = 500
+    is_recently_listed: Optional[bool] = False
     sma50: Optional[float] = None
     sma200: Optional[float] = None
     sma200_slope_60d_pct: Optional[float] = None
-    passes_trend_check: bool
-    passes_liquidity: bool
+    passes_trend_check: Optional[bool] = False
+    passes_liquidity: Optional[bool] = True
 
 class ChartPayload(BaseModel):
     symbol: str
     name: str
     candles: List[Candle]
     high_52w: float
-    low_52w: float
-    high_ath: float
     dist_to_52w_high_pct: float
+    high_ath: float
     dist_to_ath_pct: float
-    status: str
-    status_label: str
     volume_multiple: float
     is_volume_confirmed: bool
-    rs_rating_smallmid: int
-    rs_rating_nifty50: int
-    sma50: Optional[float] = None
-    sma200: Optional[float] = None
-    sma200_slope_60d_pct: Optional[float] = None
-    turnover_cr: float
+    turnover_cr: Optional[float] = 0.0
 
 class UniverseStats(BaseModel):
     total_stocks: int
@@ -104,5 +96,5 @@ class UniverseStats(BaseModel):
     confirmed_volume_count: int
     last_scanned: Optional[str] = None
     latest_data_date: Optional[str] = None
-    smallmid_trend: str
-    nifty50_trend: str
+    smallmid_trend: Optional[str] = None
+    nifty50_trend: Optional[str] = None
