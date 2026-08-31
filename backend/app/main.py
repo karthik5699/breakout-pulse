@@ -91,8 +91,6 @@ def _run_scan_job():
                 return
         except Exception as e:
             logger.info(f"Online Bhavcopy download not ready yet: {e}")
-            # Recompute screener from current database
-            _recompute_from_sqlite()
             _load_initial_cache()
             scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             scan_state["progress"] = scan_state["total"]
@@ -106,8 +104,9 @@ def _run_scan_job():
 def _recompute_from_sqlite():
     """Recalculates all cached SQLite stocks using ScreenerEngine."""
     cached_syms = data_engine.get_all_cached_symbols()
-    if not cached_syms:
-        return []
+    if not cached_syms or len(cached_syms) < 50:
+        _load_initial_cache()
+        return scan_state.get("cached_results", [])
     
     stock_dfs = {}
     stock_names = {}
@@ -122,9 +121,10 @@ def _recompute_from_sqlite():
     n50_bench = data_engine.get_cached_candles(BENCHMARK_NIFTY50)
     
     results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
-    scan_state["cached_results"] = results
-    scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return results
+    if results:
+        scan_state["cached_results"] = results
+        scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return scan_state.get("cached_results", [])
 
 
 @app.get("/api/health")
@@ -141,6 +141,9 @@ def health_check():
 @app.get("/api/universe-stats", response_model=UniverseStats)
 def get_universe_stats():
     results: List[StockScreenerItem] = scan_state.get("cached_results", [])
+    if not results:
+        _load_initial_cache()
+        results = scan_state.get("cached_results", [])
     if not results:
         results = _recompute_from_sqlite()
 
@@ -196,6 +199,9 @@ def get_screened_stocks(
     limit: int = Query(250, description="Max items to return")
 ):
     results: List[StockScreenerItem] = scan_state.get("cached_results", [])
+    if not results:
+        _load_initial_cache()
+        results = scan_state.get("cached_results", [])
     if not results:
         results = _recompute_from_sqlite()
 
