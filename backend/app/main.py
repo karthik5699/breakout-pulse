@@ -197,7 +197,7 @@ def get_universe_stats():
 
 @app.get("/api/stocks", response_model=List[StockScreenerItem])
 def get_screened_stocks(
-    tab: str = Query("near_52w", description="Filter tab: near_52w, breakout_52w, ath, recent_listings, all"),
+    tab: str = Query("ath", description="Filter tab: ath, near_52w, breakout_52w, recent_listings, all"),
     volume_confirmed_only: bool = Query(True, description="Default view shows only volume confirmed (>=1.4x) stocks"),
     trend_only: bool = Query(False, description="Filter only stocks passing trend checks"),
     search: Optional[str] = Query(None, description="Search by symbol or company name"),

@@ -10,7 +10,7 @@ import { RefreshCw, CheckCircle2, Info } from 'lucide-react'
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
-  const [activeTab, setActiveTab] = useState('near_52w')
+  const [activeTab, setActiveTab] = useState('ath')
   const [volumeConfirmedOnly, setVolumeConfirmedOnly] = useState(true)
   const [trendOnly, setTrendOnly] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')

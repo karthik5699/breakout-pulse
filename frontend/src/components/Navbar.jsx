@@ -21,7 +21,7 @@ export default function Navbar({
         {/* Brand: Institutional Geometric Logomark & Wordmark */}
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => setActiveTab('near_52w')}
+            onClick={() => setActiveTab('ath')}
             className="flex items-center gap-2.5 text-left focus:outline-none group"
           >
             {/* VCP Geometric Logomark */}
