@@ -138,6 +138,17 @@ def health_check():
     }
 
 
+def _is_ath(x: StockScreenerItem) -> bool:
+    return bool(x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
+
+def _is_recent_listing(x: StockScreenerItem) -> bool:
+    return bool((x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
+
+def _is_near_52w(x: StockScreenerItem) -> bool:
+    # Within 10% of 52W High, excluding ATH and Recent Listings to guarantee ZERO duplicates
+    return bool(x.dist_to_52w_high_pct >= -10.0 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity)
+
+
 @app.get("/api/universe-stats", response_model=UniverseStats)
 def get_universe_stats():
     results: List[StockScreenerItem] = scan_state.get("cached_results", [])
@@ -147,11 +158,11 @@ def get_universe_stats():
     if not results:
         results = _recompute_from_sqlite()
 
-    near_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
-    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and x.passes_liquidity)
-    near_ath = sum(1 for x in results if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
-    recent_listing = sum(1 for x in results if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
-    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
+    near_ath = sum(1 for x in results if _is_ath(x))
+    recent_listing = sum(1 for x in results if _is_recent_listing(x))
+    near_52w = sum(1 for x in results if _is_near_52w(x))
+    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity)
+    confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and (_is_ath(x) or _is_near_52w(x) or _is_recent_listing(x)))
 
     # Small/Midcap Benchmark Trend
     sm_df = data_engine.get_cached_candles(BENCHMARK_SMALLMID)
@@ -208,15 +219,15 @@ def get_screened_stocks(
     # Base liquidity filter: require valid liquidity for all setups
     filtered = [x for x in results if x.passes_liquidity] if tab != "all" else results
 
-    # 1. Tab filtering using direct distance metrics
-    if tab == "near_52w":
-        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -10.0]
+    # 1. Mutually Exclusive Tab Filtering (Zero Duplicates)
+    if tab == "ath":
+        filtered = [x for x in filtered if _is_ath(x)]
+    elif tab == "near_52w":
+        filtered = [x for x in filtered if _is_near_52w(x)]
     elif tab == "breakout_52w":
-        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5]
-    elif tab == "ath":
-        filtered = [x for x in filtered if x.dist_to_ath_pct >= -5.0 and (x.trading_days or 500) >= 1000]
+        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x)]
     elif tab == "recent_listings":
-        filtered = [x for x in filtered if (x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0]
+        filtered = [x for x in filtered if _is_recent_listing(x)]
 
     # 2. Volume confirmation filter
     if volume_confirmed_only and tab != "all":
