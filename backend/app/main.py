@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import yfinance as yf
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 app = FastAPI(
-    title="52-Week High & ATH Momentum Screener (NSE)",
-    description="Small/Midcap-optimized 52-Week High, 52-Week Breakout, and All-Time High scanner with Volume Confirmation",
+    title="BreakoutPulse — 52-Week High & ATH Momentum Screener (NSE)",
+    description="52-Week High, 52-Week Breakout, and All-Time High scanner with Volume Confirmation",
     version="2.0.0"
 )
 
@@ -36,6 +37,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+CACHE_JSON_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "screener_cache.json"))
+
 # Global scan status state
 scan_state = {
     "is_scanning": False,
@@ -43,11 +46,30 @@ scan_state = {
     "total": 0,
     "current_symbol": "",
     "last_scanned": None,
+    "latest_data_date": None,
     "cached_results": []
 }
 
+def _load_initial_cache():
+    """Loads pre-seeded screener cache so the dashboard is immediately populated on cloud launch."""
+    global scan_state
+    if os.path.exists(CACHE_JSON_PATH):
+        try:
+            with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+                items = [StockScreenerItem(**x) for x in payload.get("results", [])]
+                scan_state["cached_results"] = items
+                scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-25")
+                logger.info(f"Loaded {len(items)} pre-calculated stocks from {CACHE_JSON_PATH}")
+        except Exception as e:
+            logger.warning(f"Could not load pre-seeded cache: {e}")
+
+_load_initial_cache()
+
+
 def _run_scan_job():
-    """Background task to fetch and analyze universe stocks."""
+    """Background task to fetch and analyze universe stocks using batch downloads."""
     global scan_state
     scan_state["is_scanning"] = True
     scan_state["progress"] = 0
@@ -59,25 +81,53 @@ def _run_scan_job():
         # 1. Fetch benchmarks
         sm_bench, n50_bench = data_engine.fetch_benchmarks(period="5y")
         
-        # 2. Fetch/update stocks in parallel using ThreadPoolExecutor for 10x speed
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        # 2. Batch Download using yf.download for 50x speed & zero rate limits
+        chunk_size = 50
+        chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
         
-        def _fetch_stock_worker(sym):
+        for idx, chunk in enumerate(chunks):
             try:
-                cached_df = data_engine.get_cached_candles(sym)
-                if cached_df is None or len(cached_df) < 20:
-                    data_engine.fetch_and_cache_symbol(sym, period="5y")
-                else:
-                    data_engine.fetch_and_cache_symbol(sym, period="1mo")
+                tickers_str = " ".join([f"{s}.NS" for s in chunk])
+                batch_df = yf.download(
+                    tickers_str, 
+                    period="1mo", 
+                    interval="1d", 
+                    auto_adjust=True, 
+                    group_by="ticker", 
+                    threads=True,
+                    progress=False
+                )
+                
+                # Save each symbol into SQLite
+                if batch_df is not None and not batch_df.empty:
+                    for sym in chunk:
+                        yf_sym = f"{sym}.NS"
+                        try:
+                            if len(chunk) == 1:
+                                sym_df = batch_df
+                            elif hasattr(batch_df.columns, 'levels') and yf_sym in batch_df.columns.levels[0]:
+                                sym_df = batch_df[yf_sym].dropna(how="all")
+                            else:
+                                continue
+                            
+                            if sym_df is not None and len(sym_df) > 0:
+                                sym_df = sym_df.reset_index()
+                                date_col = "Date" if "Date" in sym_df.columns else "Datetime"
+                                sym_df["date"] = pd.to_datetime(sym_df[date_col]).dt.strftime("%Y-%m-%d")
+                                for col in ["open", "high", "low", "close", "volume"]:
+                                    cap = col.capitalize()
+                                    if cap in sym_df.columns:
+                                        sym_df[col] = sym_df[cap].astype(float)
+                                clean_df = sym_df[["date", "open", "high", "low", "close", "volume"]].dropna().drop_duplicates("date")
+                                if len(clean_df) > 0:
+                                    data_engine._save_candles_to_db(sym, clean_df)
+                        except Exception as ex:
+                            logger.debug(f"Error saving batch {sym}: {ex}")
             except Exception as e:
-                logger.warning(f"Error fetching {sym}: {e}")
-
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_sym = {executor.submit(_fetch_stock_worker, sym): sym for sym in symbols}
-            for future in as_completed(future_to_sym):
-                sym = future_to_sym[future]
-                scan_state["progress"] += 1
-                scan_state["current_symbol"] = sym
+                logger.warning(f"Batch fetch error for chunk {idx}: {e}")
+            
+            scan_state["progress"] += len(chunk)
+            scan_state["current_symbol"] = chunk[-1]
 
         # 3. Load all updated DataFrames from SQLite
         stock_dfs = {}
@@ -86,19 +136,35 @@ def _run_scan_job():
             meta = universe_store.get(sym)
             stock_names[sym] = meta.name if meta else sym
             updated_df = data_engine.get_cached_candles(sym)
-            if updated_df is not None and len(updated_df) >= 20:
+            if updated_df is not None and len(updated_df) >= 15:
                 stock_dfs[sym] = updated_df
                 
         # 4. Run full High/ATH analysis
-        results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
-        scan_state["cached_results"] = results
-        scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f"Scan complete: analyzed {len(stock_dfs)} stocks, computed {len(results)} screener items.")
+        if stock_dfs:
+            results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
+            scan_state["cached_results"] = results
+            scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            scan_state["latest_data_date"] = data_engine.get_latest_data_date()
+            
+            # Save updated cache file
+            try:
+                with open(CACHE_JSON_PATH, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "last_scanned": scan_state["last_scanned"],
+                        "latest_data_date": scan_state["latest_data_date"],
+                        "total_cached": len(results),
+                        "results": [r.model_dump() for r in results]
+                    }, f)
+            except Exception as e:
+                logger.warning(f"Could not persist cache file: {e}")
+                
+            logger.info(f"Scan complete: analyzed {len(stock_dfs)} stocks, computed {len(results)} screener items.")
 
     except Exception as e:
         logger.error(f"Error during universe scan: {e}", exc_info=True)
     finally:
         scan_state["is_scanning"] = False
+
 
 def _recompute_from_sqlite():
     """Recalculates all cached SQLite stocks using ScreenerEngine."""
@@ -110,7 +176,7 @@ def _recompute_from_sqlite():
     stock_names = {}
     for s in cached_syms:
         df = data_engine.get_cached_candles(s)
-        if df is not None and len(df) >= 20:
+        if df is not None and len(df) >= 15:
             stock_dfs[s] = df
             meta = universe_store.get(s)
             stock_names[s] = meta.name if meta else s
@@ -126,10 +192,11 @@ def _recompute_from_sqlite():
 
 @app.get("/api/health")
 def health_check():
+    cached_count = len(scan_state.get("cached_results", [])) or len(data_engine.get_all_cached_symbols())
     return {
         "status": "healthy",
         "universe_size": universe_store.total_count(),
-        "cached_symbols": len(data_engine.get_all_cached_symbols()),
+        "cached_symbols": cached_count,
         "is_scanning": scan_state["is_scanning"]
     }
 
@@ -164,16 +231,19 @@ def get_universe_stats():
         if c < sma50:
             n50_trend = "Consolidating / Below 50 SMA"
 
+    total_cached = len(results) or len(data_engine.get_all_cached_symbols())
+    latest_date = data_engine.get_latest_data_date() or scan_state.get("latest_data_date", "2026-08-25")
+
     return UniverseStats(
         total_stocks=universe_store.total_count(),
-        cached_stocks=len(data_engine.get_all_cached_symbols()),
+        cached_stocks=total_cached,
         near_52w_count=near_52w,
         at_52w_count=at_52w,
         near_ath_count=near_ath,
         recent_listing_count=recent_listing,
         confirmed_volume_count=confirmed_vol,
         last_scanned=scan_state.get("last_scanned"),
-        latest_data_date=data_engine.get_latest_data_date(),
+        latest_data_date=latest_date,
         smallmid_trend=sm_trend,
         nifty50_trend=n50_trend
     )
@@ -248,18 +318,23 @@ def get_stock_chart(symbol: str):
     meta = universe_store.get(clean_sym)
     name = meta.name if meta else clean_sym
 
-    # Get RS ratings
-    sm_bench = data_engine.get_cached_candles(BENCHMARK_SMALLMID)
-    n50_bench = data_engine.get_cached_candles(BENCHMARK_NIFTY50)
-    rs_map = screener_engine.compute_rs_ratings({clean_sym: computed_df}, sm_bench, n50_bench)
-    rs_sm, rs_n50 = rs_map.get(clean_sym, (50, 50))
+    # High / ATH summary
+    c_last = float(computed_df["close"].iloc[-1])
+    h_52w = float(computed_df["high_52w"].iloc[-1]) if "high_52w" in computed_df else c_last
+    h_ath = float(computed_df["high_ath"].iloc[-1]) if "high_ath" in computed_df else c_last
+    vol_last = float(computed_df["volume"].iloc[-1])
+    vol_sma50 = float(computed_df["vol_sma50"].iloc[-1]) if "vol_sma50" in computed_df else vol_last
 
-    analysis = screener_engine.analyze_stock(computed_df, rs_sm, rs_n50)
+    vol_mult = round(vol_last / vol_sma50, 2) if vol_sma50 > 0 else 1.0
+    dist_52w = round(((c_last - h_52w) / h_52w) * 100, 2) if h_52w > 0 else 0.0
+    dist_ath = round(((c_last - h_ath) / h_ath) * 100, 2) if h_ath > 0 else 0.0
 
-    # Format candles for TradingView Lightweight Charts
+    # Turnover
+    turnover_cr = round(float(computed_df["turnover_sma20"].iloc[-1]) / 1e7, 2) if "turnover_sma20" in computed_df else 0.0
+
     candles = [
         Candle(
-            time=str(row["date"]) if "date" in row else str(row.get("date_str", "")),
+            time=str(row["date_str"]),
             open=float(row["open"]),
             high=float(row["high"]),
             low=float(row["low"]),
@@ -273,50 +348,24 @@ def get_stock_chart(symbol: str):
         symbol=clean_sym,
         name=name,
         candles=candles,
-        high_52w=analysis.high_52w,
-        low_52w=analysis.low_52w,
-        high_ath=analysis.high_ath,
-        dist_to_52w_high_pct=analysis.dist_to_52w_high_pct,
-        dist_to_ath_pct=analysis.dist_to_ath_pct,
-        status=analysis.status,
-        status_label=analysis.status_label,
-        volume_multiple=analysis.volume_multiple,
-        is_volume_confirmed=analysis.is_volume_confirmed,
-        rs_rating_smallmid=analysis.rs_rating_smallmid,
-        rs_rating_nifty50=analysis.rs_rating_nifty50,
-        sma50=analysis.sma50,
-        sma200=analysis.sma200,
-        sma200_slope_60d_pct=analysis.sma200_slope_60d_pct,
-        turnover_cr=analysis.turnover_cr
+        high_52w=round(h_52w, 2),
+        dist_to_52w_high_pct=dist_52w,
+        high_ath=round(h_ath, 2),
+        dist_to_ath_pct=dist_ath,
+        volume_multiple=vol_mult,
+        is_volume_confirmed=(vol_mult >= 1.4),
+        turnover_cr=turnover_cr
     )
 
 
 @app.post("/api/scan")
 def trigger_scan(background_tasks: BackgroundTasks):
+    global scan_state
     if scan_state["is_scanning"]:
-        return {"status": "in_progress", "progress": scan_state["progress"], "total": scan_state["total"]}
+        return {"status": "already_running", "progress": scan_state["progress"], "total": scan_state["total"]}
     
     background_tasks.add_task(_run_scan_job)
-    return {"status": "started", "message": f"Scan initiated for {universe_store.total_count()} symbols."}
-
-
-@app.post("/api/recalculate")
-def recalculate_cached_stocks():
-    """Immediately re-evaluates all cached stocks in SQLite using ScreenerEngine."""
-    results = _recompute_from_sqlite()
-    near_52w = sum(1 for x in results if x.status == "NEAR_52W_HIGH")
-    at_52w = sum(1 for x in results if x.status == "AT_52W_HIGH")
-    near_ath = sum(1 for x in results if x.status == "NEAR_ATH")
-    recent_listing = sum(1 for x in results if x.status == "RECENT_LISTING")
-    
-    return {
-        "status": "success",
-        "total_analyzed": len(results),
-        "near_52w_high": near_52w,
-        "at_52w_high": at_52w,
-        "near_ath": near_ath,
-        "recent_listings": recent_listing
-    }
+    return {"status": "started", "message": "Batch market scan started in background."}
 
 
 @app.get("/api/scan-status")
