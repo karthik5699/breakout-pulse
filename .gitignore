@@ -30,7 +30,6 @@ backend/data/daily_scans/
 
 # Node / Frontend
 frontend/node_modules/
-frontend/dist/
 frontend/.vite/
 
 # Logs & OS
