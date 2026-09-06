@@ -75,7 +75,49 @@ class DataEngine:
                     updated_at TEXT NOT NULL
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS stock_ath (
+                    symbol TEXT PRIMARY KEY,
+                    ath_price REAL NOT NULL,
+                    ath_date TEXT,
+                    updated_at TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_candles_date ON daily_candles(date)
+            """)
             conn.commit()
+
+    def get_stock_ath(self, symbol: str) -> Optional[float]:
+        """Retrieves verified lifetime All-Time High price for symbol."""
+        clean_sym = self._clean_symbol(symbol) if not symbol.startswith("^") else symbol
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT ath_price FROM stock_ath WHERE symbol = ?", (clean_sym,))
+            row = cursor.fetchone()
+            return float(row[0]) if (row and row[0] is not None) else None
+
+    def get_all_stock_aths(self) -> Dict[str, float]:
+        """Retrieves all verified lifetime All-Time High prices as a dictionary."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT symbol, ath_price FROM stock_ath")
+            return {row[0]: float(row[1]) for row in cursor.fetchall() if row[1] is not None}
+
+    def update_stock_ath(self, symbol: str, ath_price: float, ath_date: str):
+        """Updates or inserts lifetime All-Time High if new price exceeds existing ATH."""
+        clean_sym = self._clean_symbol(symbol) if not symbol.startswith("^") else symbol
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT ath_price FROM stock_ath WHERE symbol = ?", (clean_sym,))
+            row = cursor.fetchone()
+            if row is None or row[0] is None or float(ath_price) > float(row[0]):
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("""
+                    INSERT OR REPLACE INTO stock_ath (symbol, ath_price, ath_date, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, (clean_sym, round(float(ath_price), 2), str(ath_date), now_str))
+                conn.commit()
 
     def _format_ticker(self, symbol: str) -> str:
         """Appends .NS for NSE equities if not already present or index."""
@@ -145,6 +187,13 @@ class DataEngine:
                 # Save to SQLite
                 self._save_candles_to_db(clean_sym, clean_df)
                 self._record_ticker_status(clean_sym, "OK", len(clean_df), None)
+
+                # Update stock ATH if fetched history has higher price
+                if not clean_df.empty:
+                    max_h_idx = clean_df["high"].idxmax()
+                    max_h = float(clean_df.loc[max_h_idx, "high"])
+                    max_d = str(clean_df.loc[max_h_idx, "date"])
+                    self.update_stock_ath(clean_sym, max_h, max_d)
                 
                 return clean_df
 
@@ -203,7 +252,7 @@ class DataEngine:
                 ORDER BY date ASC
             """
             df = pd.read_sql_query(query, conn, params=(clean_sym,))
-            if df.empty or len(df) < 5:
+            if df.empty:
                 return None
             return df
 
@@ -214,12 +263,12 @@ class DataEngine:
             cursor.execute("SELECT DISTINCT symbol FROM daily_candles WHERE symbol NOT LIKE '^%'")
             return [row[0] for row in cursor.fetchall()]
 
-    def get_latest_data_date(self) -> str:
+    def get_latest_data_date(self) -> Optional[str]:
         """Returns the most recent trading candle date recorded in SQLite."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT MAX(date) FROM daily_candles WHERE symbol NOT LIKE '^%'")
             row = cursor.fetchone()
-            return row[0] if (row and row[0]) else datetime.now().strftime("%Y-%m-%d")
+            return row[0] if (row and row[0]) else None
 
 data_engine = DataEngine()

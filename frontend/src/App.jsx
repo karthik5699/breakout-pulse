@@ -87,7 +87,7 @@ export default function App() {
     try {
       setToast({
         type: 'info',
-        message: "Checking official NSE servers for today's Bhavcopy..."
+        message: "Checking official NSE servers for latest market data..."
       })
       const res = await fetch('/api/scan', { method: 'POST' })
       const data = await res.json()
@@ -95,15 +95,15 @@ export default function App() {
       await fetchStats()
       await fetchStocks()
 
-      if (data.is_today_available) {
+      if (data.status === 'success' || data.is_today_available || (data.stocks_updated && data.stocks_updated > 0)) {
         setToast({
           type: 'success',
-          message: data.message || "Today's official NSE Bhavcopy successfully downloaded and loaded!"
+          message: data.message || "Official NSE Bhavcopy successfully downloaded and loaded!"
         })
       } else {
         setToast({
           type: 'info',
-          message: data.message || "Today's official Bhavcopy is not yet released by NSE (typically published around 3:45 PM – 4:30 PM IST). Displaying latest available session data."
+          message: data.message || "Displaying latest available session data."
         })
       }
       setTimeout(() => setToast(null), 8000)

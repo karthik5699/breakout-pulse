@@ -22,7 +22,7 @@ class ScreenerEngine:
         self.min_sma200_slope_60d_pct = min_sma200_slope_60d_pct
         self.min_vol_multiple_confirmed = min_vol_multiple_confirmed
 
-    def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    def compute_indicators(self, df: pd.DataFrame, lifetime_ath: Optional[float] = None) -> pd.DataFrame:
         """Computes 50 SMA, 200 SMA, 52W High/Low, ATH, Volume MA, and daily turnover."""
         df = df.copy().reset_index(drop=True)
         df["date_str"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
@@ -33,21 +33,25 @@ class ScreenerEngine:
         v = df["volume"]
 
         # Moving Averages
-        df["sma50"] = c.rolling(window=50, min_periods=15).mean()
-        df["sma200"] = c.rolling(window=200, min_periods=40).mean()
-        df["vol_sma50"] = v.rolling(window=50, min_periods=10).mean().fillna(v)
-        df["vol_sma20"] = v.rolling(window=20, min_periods=5).mean().fillna(v)
+        df["sma50"] = c.rolling(window=50, min_periods=1).mean().fillna(c)
+        df["sma200"] = c.rolling(window=200, min_periods=1).mean().fillna(c)
+        df["vol_sma50"] = v.rolling(window=50, min_periods=1).mean().fillna(v)
+        df["vol_sma20"] = v.rolling(window=20, min_periods=1).mean().fillna(v)
 
         # 52-Week (252 trading days) High & Low
-        df["high_52w"] = h.rolling(window=252, min_periods=20).max()
-        df["low_52w"] = l.rolling(window=252, min_periods=20).min()
+        df["high_52w"] = h.rolling(window=252, min_periods=1).max().fillna(h)
+        df["low_52w"] = l.rolling(window=252, min_periods=1).min().fillna(l)
 
-        # All-Time High (Expanding max across full history)
-        df["high_ath"] = h.expanding(min_periods=1).max()
+        # All-Time High (Expanding max incorporating verified lifetime ATH if provided)
+        expanding_ath = h.expanding(min_periods=1).max().fillna(h)
+        if lifetime_ath is not None and float(lifetime_ath) > 0:
+            df["high_ath"] = np.maximum(expanding_ath, float(lifetime_ath))
+        else:
+            df["high_ath"] = expanding_ath
 
         # Daily Turnover in Rupees = Close * Volume
         df["turnover"] = c * v
-        df["turnover_sma20"] = df["turnover"].rolling(window=20, min_periods=5).mean().fillna(df["turnover"])
+        df["turnover_sma20"] = df["turnover"].rolling(window=20, min_periods=1).mean().fillna(df["turnover"])
 
         return df
 
@@ -209,10 +213,10 @@ class ScreenerEngine:
         elif not is_recent_listing and c >= (high_ath * 0.95) and c <= (high_ath * 1.05):
             status = "NEAR_ATH"
             status_label = "All-Time High (ATH)"
-        elif c >= (high_52w * 0.995) and high_52w < (high_ath * 0.95):
+        elif c >= (high_52w * 0.99) and high_52w < (high_ath * 0.95):
             status = "AT_52W_HIGH"
             status_label = "52-Week High Breakout"
-        elif c >= (high_52w * 0.90) and c < (high_52w * 0.995):
+        elif c >= (high_52w * 0.90) and c < (high_52w * 0.99):
             status = "NEAR_52W_HIGH"
             status_label = "Near 52-Week High (-10%)"
 
@@ -248,13 +252,15 @@ class ScreenerEngine:
         stock_dfs: Dict[str, pd.DataFrame],
         stock_names: Dict[str, str],
         smallmid_bench_df: Optional[pd.DataFrame] = None,
-        nifty50_bench_df: Optional[pd.DataFrame] = None
+        nifty50_bench_df: Optional[pd.DataFrame] = None,
+        ath_dict: Optional[Dict[str, float]] = None
     ) -> List[StockScreenerItem]:
         """Runs the screener across the entire stock universe."""
+        ath_dict = ath_dict or {}
         computed_dfs = {}
         for sym, df in stock_dfs.items():
             if df is not None and len(df) >= 20:
-                computed_dfs[sym] = self.compute_indicators(df)
+                computed_dfs[sym] = self.compute_indicators(df, lifetime_ath=ath_dict.get(sym))
 
         rs_ratings = self.compute_rs_ratings(computed_dfs, smallmid_bench_df, nifty50_bench_df)
 

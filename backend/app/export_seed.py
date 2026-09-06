@@ -30,9 +30,13 @@ def export_cache(as_of_date: Optional[str] = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    if as_of_date:
-        cursor.execute("DELETE FROM daily_candles WHERE date > ?", (as_of_date,))
-        conn.commit()
+    # Load verified lifetime ATHs from stock_ath table
+    stock_aths = {}
+    try:
+        cursor.execute("SELECT symbol, ath_price FROM stock_ath")
+        stock_aths = {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
+    except Exception as e:
+        print(f"Warning: could not load stock_ath: {e}")
 
     cursor.execute("SELECT DISTINCT symbol FROM daily_candles")
     symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
@@ -83,7 +87,7 @@ def export_cache(as_of_date: Optional[str] = None):
         passes_liquidity = bool(active_days >= 15 and turnover_cr >= 0.25)
 
         # Highs
-        high_ath = max(highs)
+        high_ath = max(max(highs), stock_aths.get(sym, 0.0))
         w52_bars = min(n_bars, 252)
         high_52w = max(highs[-w52_bars:])
         low_52w = min(lows[-w52_bars:])
@@ -109,12 +113,12 @@ def export_cache(as_of_date: Optional[str] = None):
         if not passes_liquidity:
             status = "ILLIQUID"
             status_label = "Illiquid / Inactive"
-        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 1000:
-            status = "NEAR_ATH"
-            status_label = "All-Time High (ATH)"
         elif is_recent and dist_to_52w >= -10.0:
             status = "RECENT_LISTING"
             status_label = "Recent Listing (<2Y)"
+        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
+            status = "NEAR_ATH"
+            status_label = "All-Time High (ATH)"
         elif dist_to_52w >= -0.5:
             status = "AT_52W_HIGH"
             status_label = "52-Week Breakout"
@@ -160,8 +164,8 @@ def export_cache(as_of_date: Optional[str] = None):
 
     conn.close()
 
-    if len(results) < 50:
-        print(f"Skipping cache overwrite: only {len(results)} stocks computed from SQLite (insufficient database history). Existing cache preserved.")
+    if len(results) < 1500:
+        print(f"Skipping cache overwrite: only {len(results)} stocks computed from SQLite (insufficient database history for full universe). Existing cache preserved.")
         return 0
 
     payload = {

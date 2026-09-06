@@ -8,6 +8,8 @@ class StockMeta(BaseModel):
     series: Optional[str] = "EQ"
     industry: Optional[str] = ""
     market_cap: Optional[str] = ""
+    listing_date: Optional[str] = None
+    face_value: Optional[float] = None
 
 class Candle(BaseModel):
     time: str          # YYYY-MM-DD

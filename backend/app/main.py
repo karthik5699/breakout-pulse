@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import yfinance as yf
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -87,8 +87,8 @@ def _run_scan_job():
         scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         scan_state["progress"] = scan_state["total"]
         scan_state["scan_message"] = result["message"]
-        scan_state["scan_status_type"] = "success" if result["is_today_available"] else "info"
-        if result.get("trade_date") and result["is_today_available"]:
+        scan_state["scan_status_type"] = "success" if result.get("status") == "success" else "info"
+        if result.get("trade_date") and (result.get("stocks_updated", 0) > 0 or result.get("is_today_available")):
             scan_state["latest_data_date"] = result["trade_date"]
     except Exception as e:
         logger.error(f"Error during Bhavcopy scan: {e}", exc_info=True)
@@ -99,9 +99,9 @@ def _run_scan_job():
 
 
 def _recompute_from_sqlite():
-    """Recalculates all cached SQLite stocks using ScreenerEngine."""
+    """Recalculates cached SQLite stocks using ScreenerEngine if sufficient history is available."""
     cached_syms = data_engine.get_all_cached_symbols()
-    if not cached_syms or len(cached_syms) < 50:
+    if not cached_syms:
         _load_initial_cache()
         return scan_state.get("cached_results", [])
     
@@ -114,11 +114,16 @@ def _recompute_from_sqlite():
             meta = universe_store.get(s)
             stock_names[s] = meta.name if meta else s
             
+    if len(stock_dfs) < 1500:
+        _load_initial_cache()
+        return scan_state.get("cached_results", [])
+
     sm_bench = data_engine.get_cached_candles(BENCHMARK_SMALLMID)
     n50_bench = data_engine.get_cached_candles(BENCHMARK_NIFTY50)
+    ath_dict = data_engine.get_all_stock_aths()
     
-    results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench)
-    if results:
+    results = screener_engine.run_screener(stock_dfs, stock_names, sm_bench, n50_bench, ath_dict=ath_dict)
+    if results and len(results) >= 1500:
         scan_state["cached_results"] = results
         scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return scan_state.get("cached_results", [])
@@ -137,7 +142,7 @@ def health_check():
 
 def _is_ath(x: StockScreenerItem) -> bool:
     # Within +-10% of ATH (Early setups & active breakouts)
-    return bool(x.dist_to_ath_pct >= -10.0 and x.dist_to_ath_pct <= 10.0 and (x.trading_days or 500) >= 1000 and x.passes_liquidity)
+    return bool(x.dist_to_ath_pct >= -10.0 and x.dist_to_ath_pct <= 10.0 and (x.trading_days or 500) >= 500 and x.passes_liquidity)
 
 def _is_recent_listing(x: StockScreenerItem) -> bool:
     return bool((x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
@@ -251,57 +256,94 @@ def get_screened_stocks(
 
 
 @app.get("/api/stocks/{symbol}/chart", response_model=ChartPayload)
-def get_stock_chart(symbol: str):
+def get_stock_chart(symbol: str, response: Response):
+    import numpy as np
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+
     clean_sym = symbol.strip().upper().replace(".NS", "")
     df = data_engine.get_cached_candles(clean_sym)
     
-    if df is None or len(df) < 5:
+    # If not cached or only has few recent Bhavcopy daily bars, fetch full multi-year history
+    if df is None or len(df) < 100:
         try:
-            df = data_engine.fetch_and_cache_symbol(clean_sym, period="5y")
-        except Exception:
-            pass
+            fetched_df = data_engine.fetch_and_cache_symbol(clean_sym, period="5y")
+            if fetched_df is not None and not fetched_df.empty:
+                df = data_engine.get_cached_candles(clean_sym)
+        except Exception as e:
+            logger.warning(f"Could not fetch historical chart data for {clean_sym}: {e}")
 
-    if df is None or len(df) < 5:
+    if df is None or len(df) < 1:
         raise HTTPException(status_code=404, detail=f"No chart data available for {symbol}")
 
-    computed_df = screener_engine.compute_indicators(df)
+    true_ath = data_engine.get_stock_ath(clean_sym)
+    computed_df = screener_engine.compute_indicators(df, lifetime_ath=true_ath)
     meta = universe_store.get(clean_sym)
     name = meta.name if meta else clean_sym
 
     c_last = float(computed_df["close"].iloc[-1])
-    h_52w = float(computed_df["high_52w"].iloc[-1]) if "high_52w" in computed_df else c_last
-    h_ath = float(computed_df["high_ath"].iloc[-1]) if "high_ath" in computed_df else c_last
+    
+    h_52w_val = computed_df["high_52w"].iloc[-1] if "high_52w" in computed_df else c_last
+    if pd.isna(h_52w_val) or np.isnan(h_52w_val) or float(h_52w_val) <= 0:
+        h_52w = c_last
+    else:
+        h_52w = float(h_52w_val)
+
+    h_ath_val = computed_df["high_ath"].iloc[-1] if "high_ath" in computed_df else max(h_52w, c_last)
+    if true_ath is not None and true_ath > 0:
+        h_ath_val = max(float(h_ath_val), float(true_ath))
+    if pd.isna(h_ath_val) or np.isnan(h_ath_val) or float(h_ath_val) <= 0:
+        h_ath = max(h_52w, c_last)
+    else:
+        h_ath = float(h_ath_val)
+
     vol_last = float(computed_df["volume"].iloc[-1])
-    vol_sma50 = float(computed_df["vol_sma50"].iloc[-1]) if "vol_sma50" in computed_df else vol_last
+    vol_sma50_val = computed_df["vol_sma50"].iloc[-1] if "vol_sma50" in computed_df else vol_last
+    if pd.isna(vol_sma50_val) or np.isnan(vol_sma50_val) or float(vol_sma50_val) <= 0:
+        vol_sma50 = max(vol_last, 1.0)
+    else:
+        vol_sma50 = float(vol_sma50_val)
 
     vol_mult = round(vol_last / vol_sma50, 2) if vol_sma50 > 0 else 1.0
     dist_52w = round(((c_last - h_52w) / h_52w) * 100, 2) if h_52w > 0 else 0.0
     dist_ath = round(((c_last - h_ath) / h_ath) * 100, 2) if h_ath > 0 else 0.0
-    turnover_cr = round(float(computed_df["turnover_sma20"].iloc[-1]) / 1e7, 2) if "turnover_sma20" in computed_df else 0.0
+    
+    turnover_sma_val = computed_df["turnover_sma20"].iloc[-1] if "turnover_sma20" in computed_df else 0.0
+    turnover_cr = round(float(turnover_sma_val) / 1e7, 2) if (pd.notna(turnover_sma_val) and not np.isnan(turnover_sma_val)) else 0.0
 
-    candles = [
-        Candle(
-            time=str(row["date_str"]),
-            open=float(row["open"]),
-            high=float(row["high"]),
-            low=float(row["low"]),
-            close=float(row["close"]),
-            volume=float(row["volume"])
+    candles = []
+    for _, row in computed_df.iterrows():
+        o = float(row["open"]) if pd.notna(row["open"]) and not np.isnan(row["open"]) else c_last
+        h = float(row["high"]) if pd.notna(row["high"]) and not np.isnan(row["high"]) else max(o, c_last)
+        l = float(row["low"]) if pd.notna(row["low"]) and not np.isnan(row["low"]) else min(o, c_last)
+        c = float(row["close"]) if pd.notna(row["close"]) and not np.isnan(row["close"]) else o
+        v = float(row["volume"]) if pd.notna(row["volume"]) and not np.isnan(row["volume"]) else 0.0
+
+        h = max(h, o, c)
+        l = min(l, o, c)
+
+        candles.append(
+            Candle(
+                time=str(row["date_str"]),
+                open=round(o, 2),
+                high=round(h, 2),
+                low=round(l, 2),
+                close=round(c, 2),
+                volume=round(v, 2)
+            )
         )
-        for _, row in computed_df.iterrows()
-    ]
 
     return ChartPayload(
         symbol=clean_sym,
         name=name,
         candles=candles,
         high_52w=round(h_52w, 2),
-        dist_to_52w_high_pct=dist_52w,
+        dist_to_52w_high_pct=round(dist_52w, 2),
         high_ath=round(h_ath, 2),
-        dist_to_ath_pct=dist_ath,
-        volume_multiple=vol_mult,
-        is_volume_confirmed=(vol_mult >= 1.4 and vol_last >= 5000),
-        turnover_cr=turnover_cr
+        dist_to_ath_pct=round(dist_ath, 2),
+        volume_multiple=round(vol_mult, 2),
+        is_volume_confirmed=bool(vol_mult >= 1.4 and vol_last >= 5000),
+        turnover_cr=round(turnover_cr, 2)
     )
 
 
@@ -311,21 +353,26 @@ def trigger_scan():
     if scan_state["is_scanning"]:
         return {"status": "already_running", "message": "Scan already in progress."}
     
-    from backend.app.bhavcopy_engine import bhavcopy_engine
-    result = bhavcopy_engine.sync_daily_market()
-    _load_initial_cache()
-    scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    scan_state["scan_message"] = result["message"]
-    scan_state["scan_status_type"] = "success" if result["is_today_available"] else "info"
-    if result.get("trade_date") and result["is_today_available"]:
-        scan_state["latest_data_date"] = result["trade_date"]
-    
-    return {
-        "status": result["status"],
-        "is_today_available": result["is_today_available"],
-        "message": result["message"],
-        "stocks_updated": result.get("stocks_updated", 0)
-    }
+    scan_state["is_scanning"] = True
+    try:
+        from backend.app.bhavcopy_engine import bhavcopy_engine
+        result = bhavcopy_engine.sync_daily_market()
+        _load_initial_cache()
+        scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        scan_state["scan_message"] = result["message"]
+        scan_state["scan_status_type"] = "success" if result.get("status") == "success" else "info"
+        if result.get("trade_date") and (result.get("stocks_updated", 0) > 0 or result.get("is_today_available")):
+            scan_state["latest_data_date"] = result["trade_date"]
+        
+        return {
+            "status": result["status"],
+            "is_today_available": result.get("is_today_available", False),
+            "message": result["message"],
+            "trade_date": result.get("trade_date"),
+            "stocks_updated": result.get("stocks_updated", 0)
+        }
+    finally:
+        scan_state["is_scanning"] = False
 
 
 @app.get("/api/scan-status")
@@ -356,6 +403,8 @@ async def upload_bhavcopy(file: UploadFile = File(...)):
             
         count = bhavcopy_engine.ingest_stocks_to_db(stocks, t_date)
         _load_initial_cache()
+        scan_state["latest_data_date"] = t_date
+        scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return {
             "status": "success",
             "message": f"Successfully ingested official NSE Bhavcopy for {t_date}! {count} stocks updated.",

@@ -206,43 +206,133 @@ class BhavcopyEngine:
 
         return None
 
+    def get_latest_recorded_date(self) -> Optional[str]:
+        """Returns the latest trade date recorded in SQLite or screener cache."""
+        try:
+            db_date = data_engine.get_latest_data_date()
+            if db_date:
+                return db_date
+        except Exception:
+            pass
+
+        if os.path.exists(CACHE_JSON_PATH):
+            try:
+                with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                    return payload.get("latest_data_date")
+            except Exception:
+                pass
+        return None
+
     def sync_daily_market(self) -> Dict[str, Any]:
         """
         Main scan action:
-        1. Checks if today's Bhavcopy is available on NSE.
-        2. If available -> downloads, ingests in 0.3s, updates cache, and returns success message.
-        3. If not yet published -> notifies user with clear timing guidance.
+        1. Checks what trading session date our database currently has.
+        2. Identifies any missing trading days (weekdays) between the recorded date and today.
+        3. On weekends/holidays or weekdays, downloads and ingests missing Bhavcopies from NSE.
+        4. Provides clear, accurate user guidance based on whether markets are closed,
+           missing days were backfilled, or today's session data was loaded.
         """
         today = datetime.now()
+        today_date = today.date()
         today_str = today.strftime("%Y-%m-%d")
+        is_weekend = today.weekday() >= 5
 
-        if today.weekday() >= 5:
-            return {
-                "status": "info",
-                "is_today_available": False,
-                "message": f"NSE is closed today (Weekend). Currently displaying latest available session data.",
-                "stocks_updated": 0
-            }
+        latest_recorded_str = self.get_latest_recorded_date()
+        recorded_date = None
+        if latest_recorded_str:
+            try:
+                recorded_date = datetime.strptime(latest_recorded_str, "%Y-%m-%d").date()
+            except ValueError:
+                pass
 
-        # Check if today's Bhavcopy is available on NSE
-        res = self.fetch_bhavcopy_for_date(today)
-        if res:
-            stocks, t_date = res
-            count = self.ingest_stocks_to_db(stocks, t_date)
+        # Allow backfilling up to 30 days if recorded_date is old or missing
+        if not recorded_date or (today_date - recorded_date).days > 30:
+            start_date = today_date - timedelta(days=14)
+        else:
+            start_date = recorded_date + timedelta(days=1)
+
+        # Collect candidate missing trading days (Monday to Friday) up to today
+        candidate_dates = []
+        curr = start_date
+        while curr <= today_date:
+            if curr.weekday() < 5:  # Monday to Friday
+                candidate_dates.append(curr)
+            curr += timedelta(days=1)
+
+        ingested_dates = []
+        total_stocks_updated = 0
+        latest_ingested_date = None
+
+        for c_date in candidate_dates:
+            res = self.fetch_bhavcopy_for_date(datetime.combine(c_date, datetime.min.time()))
+            if res:
+                stocks, t_date = res
+                count = self.ingest_stocks_to_db(stocks, t_date)
+                ingested_dates.append(t_date)
+                total_stocks_updated = count
+                latest_ingested_date = t_date
+
+        current_latest_str = latest_ingested_date or latest_recorded_str or today_str
+        try:
+            curr_dt = datetime.strptime(current_latest_str, "%Y-%m-%d")
+            formatted_latest = curr_dt.strftime("%A, %d %b %Y")
+        except Exception:
+            formatted_latest = current_latest_str
+
+        # Case 1: Today is Weekend (Saturday or Sunday)
+        if is_weekend:
+            if ingested_dates:
+                return {
+                    "status": "success",
+                    "is_today_available": False,
+                    "trade_date": latest_ingested_date,
+                    "stocks_updated": total_stocks_updated,
+                    "message": f"NSE is closed today (Weekend). Successfully downloaded and loaded latest available trading session data for {formatted_latest}! {total_stocks_updated} stocks updated."
+                }
+            else:
+                return {
+                    "status": "info",
+                    "is_today_available": False,
+                    "trade_date": current_latest_str,
+                    "stocks_updated": 0,
+                    "message": f"NSE is closed today (Weekend). Market data is already up to date with the latest session ({formatted_latest})."
+                }
+
+        # Case 2: Today is a Weekday
+        if today_str in ingested_dates:
             return {
                 "status": "success",
                 "is_today_available": True,
-                "trade_date": t_date,
-                "stocks_updated": count,
-                "message": f"⚡ Today's ({t_date}) official NSE Bhavcopy was successfully downloaded and loaded! {count} stocks updated."
+                "trade_date": today_str,
+                "stocks_updated": total_stocks_updated,
+                "message": f"⚡ Today's ({today.strftime('%d %b %Y')}) official NSE Bhavcopy was successfully downloaded and loaded! {total_stocks_updated} stocks updated."
+            }
+
+        if ingested_dates:
+            return {
+                "status": "success",
+                "is_today_available": False,
+                "trade_date": latest_ingested_date,
+                "stocks_updated": total_stocks_updated,
+                "message": f"Updated latest available session data for {formatted_latest} ({total_stocks_updated} stocks). Today's ({today.strftime('%d %b %Y')}) official Bhavcopy has not been released yet (typically published around 3:45 PM – 4:30 PM IST)."
+            }
+
+        if latest_recorded_str == today_str:
+            return {
+                "status": "info",
+                "is_today_available": True,
+                "trade_date": today_str,
+                "stocks_updated": 0,
+                "message": f"Market data is already up to date with today's ({today.strftime('%d %b %Y')}) session."
             }
 
         return {
             "status": "not_ready",
             "is_today_available": False,
-            "trade_date": today_str,
+            "trade_date": current_latest_str,
             "stocks_updated": 0,
-            "message": f"Today's ({today.strftime('%d %b %Y')}) official NSE Bhavcopy has not been released yet (typically published around 3:45 PM – 4:30 PM IST). Displaying latest available session data."
+            "message": f"Today's ({today.strftime('%d %b %Y')}) official NSE Bhavcopy has not been released yet (typically published around 3:45 PM – 4:30 PM IST). Displaying latest available session data ({formatted_latest})."
         }
 
     def update_cache_with_bhavcopy(self, parsed_stocks: List[Dict[str, Any]], trade_date: str) -> int:
@@ -305,7 +395,7 @@ class BhavcopyEngine:
                 if not passes_liq:
                     status = "ILLIQUID"
                     status_label = "Illiquid / Inactive"
-                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 1000:
+                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
                     status = "NEAR_ATH"
                     status_label = "All-Time High (ATH)"
                 elif is_recent and dist_to_52w >= -10.0:
@@ -365,7 +455,6 @@ class BhavcopyEngine:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM daily_candles WHERE date > ?", (trade_date,))
             records = [
                 (
                     s["symbol"],
@@ -382,6 +471,20 @@ class BhavcopyEngine:
                 INSERT OR REPLACE INTO daily_candles (symbol, date, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, records)
+
+            # Update stock_ath table if any stock hits a new lifetime high today
+            for s in parsed_stocks:
+                sym = s["symbol"]
+                h = float(s["high"])
+                if h > 0:
+                    cursor.execute("SELECT ath_price FROM stock_ath WHERE symbol = ?", (sym,))
+                    row = cursor.fetchone()
+                    if row is None or row[0] is None or h > float(row[0]):
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO stock_ath (symbol, ath_price, ath_date, updated_at)
+                            VALUES (?, ?, ?, ?)
+                        """, (sym, round(h, 2), trade_date, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
             conn.commit()
 
         # Recalculate momentum screener and update cache strictly as of trade_date

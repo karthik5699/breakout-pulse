@@ -53,6 +53,11 @@ class UniverseStore:
         self.load()
         return len(self._stocks)
 
+    def save_uploaded_csv(self, lines: List[str], overwrite: bool = True) -> int:
+        """Handles uploaded CSV lines from API, persists and reloads."""
+        csv_text = "\n".join(lines) if isinstance(lines, list) else str(lines)
+        return self.save_csv_content(csv_text)
+
     def get_all(self) -> List[StockMeta]:
         return list(self._stocks.values())
 

@@ -5,12 +5,44 @@ import { X } from 'lucide-react'
 export default function ChartModal({ symbol, onClose, theme }) {
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
+  const candleDataRef = useRef([])
+  const [activeRange, setActiveRange] = useState('1Y')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [legendData, setLegendData] = useState(null)
 
   const isDark = theme === 'dark'
+
+  const applyRange = (rangeKey, chartInstance, candles) => {
+    const ch = chartInstance || chartRef.current
+    const cData = candles || candleDataRef.current
+    if (!ch || !cData || cData.length === 0) return
+
+    if (rangeKey === 'All') {
+      ch.timeScale().fitContent()
+      return
+    }
+
+    let bars = 252
+    if (rangeKey === '6M') bars = 126
+    else if (rangeKey === '1Y') bars = 252
+    else if (rangeKey === '3Y') bars = 756
+
+    const count = Math.min(bars, cData.length)
+    const fromIndex = Math.max(0, cData.length - count)
+    const toIndex = cData.length - 1 + 5 // right offset padding
+
+    ch.timeScale().setVisibleLogicalRange({
+      from: fromIndex,
+      to: toIndex,
+    })
+  }
+
+  const handleRangeChange = (r) => {
+    setActiveRange(r)
+    applyRange(r)
+  }
 
   // Handle Escape key to close
   useEffect(() => {
@@ -28,7 +60,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
     setLoading(true)
     setError(null)
 
-    fetch(`/api/stocks/${symbol}/chart`)
+    fetch(`/api/stocks/${symbol}/chart`, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`)
         return res.json()
@@ -58,208 +90,237 @@ export default function ChartModal({ symbol, onClose, theme }) {
     const container = chartContainerRef.current
     container.innerHTML = '' // clear previous canvas
 
-    const chart = createChart(container, {
-      layout: {
-        background: { type: ColorType.Solid, color: isDark ? '#111827' : '#ffffff' },
-        textColor: isDark ? '#9CA3AF' : '#6B7280',
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-      },
-      rightPriceScale: {
-        borderColor: isDark ? '#1F2937' : '#E5E7EB',
-        scaleMargins: { top: 0.08, bottom: 0.22 },
-      },
-      timeScale: {
-        borderColor: isDark ? '#1F2937' : '#E5E7EB',
-        timeVisible: true,
-        rightOffset: 12,
-      },
-      handleScroll: true,
-      handleScale: true,
-    })
-
-    chartRef.current = chart
-
-    // 1. Candlestick Series - Emerald (#10B981) / Red (#EF4444)
-    const upColor = '#10B981'
-    const downColor = '#EF4444'
-
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: upColor,
-      downColor: downColor,
-      borderVisible: false,
-      wickUpColor: upColor,
-      wickDownColor: downColor,
-    })
-
-    const candleData = data.candles.map((c) => ({
-      time: c.time,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }))
-    candleSeries.setData(candleData)
-
-    // 2. 50-day SMA Line: Sky Blue (#38BDF8), Solid 2px
-    const closes = data.candles.map((c) => c.close)
-    const sma50Data = []
-    for (let i = 0; i < data.candles.length; i++) {
-      if (i >= 49) {
-        const slice = closes.slice(i - 49, i + 1)
-        const avg = slice.reduce((a, b) => a + b, 0) / 50
-        sma50Data.push({ time: data.candles[i].time, value: avg })
-      }
-    }
-    let sma50Series = null
-    if (sma50Data.length > 0) {
-      sma50Series = chart.addLineSeries({
-        color: '#38BDF8',
-        lineWidth: 2,
-        lineStyle: LineStyle.Solid,
-        title: '',
+    try {
+      const chart = createChart(container, {
+        autoSize: true,
+        width: container.clientWidth || 800,
+        height: container.clientHeight || 480,
+        layout: {
+          background: { type: ColorType.Solid, color: isDark ? '#111827' : '#ffffff' },
+          textColor: isDark ? '#9CA3AF' : '#6B7280',
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+        },
+        grid: {
+          vertLines: { visible: false },
+          horzLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
+        },
+        crosshair: {
+          mode: CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          scaleMargins: { top: 0.08, bottom: 0.22 },
+        },
+        timeScale: {
+          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          timeVisible: false,
+          rightOffset: 12,
+        },
+        handleScroll: true,
+        handleScale: true,
       })
-      sma50Series.setData(sma50Data)
-    }
 
-    // 3. 200-day SMA Line: Amber/Orange (#F97316), Solid 2px
-    const sma200Data = []
-    for (let i = 0; i < data.candles.length; i++) {
-      if (i >= 199) {
-        const slice = closes.slice(i - 199, i + 1)
-        const avg = slice.reduce((a, b) => a + b, 0) / 200
-        sma200Data.push({ time: data.candles[i].time, value: avg })
-      }
-    }
-    let sma200Series = null
-    if (sma200Data.length > 0) {
-      sma200Series = chart.addLineSeries({
-        color: '#F97316',
-        lineWidth: 2,
-        lineStyle: LineStyle.Solid,
-        title: '',
+      chartRef.current = chart
+
+      // 1. Candlestick Series - Emerald (#10B981) / Red (#EF4444)
+      const upColor = '#10B981'
+      const downColor = '#EF4444'
+
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: upColor,
+        downColor: downColor,
+        borderVisible: false,
+        wickUpColor: upColor,
+        wickDownColor: downColor,
       })
-      sma200Series.setData(sma200Data)
-    }
 
-    // 4. All-Time High Line: Gold/Yellow (#FACC15), Dashed 1.5px
-    if (data.high_ath && data.high_ath > 0) {
-      candleSeries.createPriceLine({
-        price: data.high_ath,
-        color: '#FACC15',
-        lineWidth: 1.5,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'ATH',
-      })
-    }
+      const rawCandles = data.candles || []
+      const candleData = rawCandles
+        .filter((c) => c && c.time && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close))
+        .map((c) => ({
+          time: String(c.time),
+          open: Number(c.open),
+          high: Math.max(Number(c.high), Number(c.open), Number(c.close)),
+          low: Math.min(Number(c.low), Number(c.open), Number(c.close)),
+          close: Number(c.close),
+        }))
 
-    // 5. 52-Week High Line: Purple (#A855F7), Dotted 1.5px (Omit if 52W High == ATH)
-    const isSameHigh = data.high_52w && data.high_ath && Math.abs(data.high_52w - data.high_ath) / data.high_ath < 0.005
-    if (data.high_52w && data.high_52w > 0 && !isSameHigh) {
-      candleSeries.createPriceLine({
-        price: data.high_52w,
-        color: '#A855F7',
-        lineWidth: 1.5,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: '52W H',
-      })
-    }
-
-    // 6. Volume Histogram Series (Occupy lower 18%, prevent price scale badge collision)
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume',
-      lastValueVisible: false,
-      priceLineVisible: false,
-    })
-
-    chart.priceScale('volume').applyOptions({
-      scaleMargins: { top: 0.82, bottom: 0.0 },
-      borderVisible: false,
-    })
-
-    const volumeData = data.candles.map((c) => ({
-      time: c.time,
-      value: c.volume,
-      color: c.close >= c.open 
-        ? 'rgba(16, 185, 129, 0.35)' 
-        : 'rgba(239, 68, 68, 0.35)',
-    }))
-    volumeSeries.setData(volumeData)
-
-    // Set Default / Initial Legend Data (Most recent candle)
-    const lastCandle = data.candles[data.candles.length - 1]
-    const defaultLegend = {
-      time: lastCandle.time,
-      open: lastCandle.open,
-      high: lastCandle.high,
-      low: lastCandle.low,
-      close: lastCandle.close,
-      volume: lastCandle.volume,
-      sma50: sma50Data.length > 0 ? sma50Data[sma50Data.length - 1].value : null,
-      sma200: sma200Data.length > 0 ? sma200Data[sma200Data.length - 1].value : null,
-    }
-    setLegendData(defaultLegend)
-
-    // 7. Subscribe to Real-Time Crosshair Movement
-    chart.subscribeCrosshairMove((param) => {
-      if (
-        !param.point ||
-        !param.time ||
-        param.point.x < 0 ||
-        param.point.x > container.clientWidth ||
-        param.point.y < 0 ||
-        param.point.y > container.clientHeight
-      ) {
-        setLegendData(defaultLegend)
-        return
+      if (candleData.length > 0) {
+        candleSeries.setData(candleData)
       }
 
-      const candle = param.seriesData.get(candleSeries)
-      const sma50Val = sma50Series ? param.seriesData.get(sma50Series) : null
-      const sma200Val = sma200Series ? param.seriesData.get(sma200Series) : null
-      const volVal = volumeSeries ? param.seriesData.get(volumeSeries) : null
-
-      if (candle) {
-        setLegendData({
-          time: param.time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: volVal ? volVal.value : candle.volume,
-          sma50: sma50Val ? sma50Val.value : null,
-          sma200: sma200Val ? sma200Val.value : null,
+      // 2. 50-day SMA Line: Sky Blue (#38BDF8), Solid 2px
+      const closes = candleData.map((c) => c.close)
+      const sma50Data = []
+      for (let i = 0; i < candleData.length; i++) {
+        if (i >= 49) {
+          const slice = closes.slice(i - 49, i + 1)
+          const avg = slice.reduce((a, b) => a + b, 0) / 50
+          sma50Data.push({ time: candleData[i].time, value: avg })
+        }
+      }
+      let sma50Series = null
+      if (sma50Data.length > 0) {
+        sma50Series = chart.addLineSeries({
+          color: '#38BDF8',
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          title: '',
         })
-      } else {
-        setLegendData(defaultLegend)
+        sma50Series.setData(sma50Data)
       }
-    })
 
-    chart.timeScale().fitContent()
+      // 3. 200-day SMA Line: Amber/Orange (#F97316), Solid 2px
+      const sma200Data = []
+      for (let i = 0; i < candleData.length; i++) {
+        if (i >= 199) {
+          const slice = closes.slice(i - 199, i + 1)
+          const avg = slice.reduce((a, b) => a + b, 0) / 200
+          sma200Data.push({ time: candleData[i].time, value: avg })
+        }
+      }
+      let sma200Series = null
+      if (sma200Data.length > 0) {
+        sma200Series = chart.addLineSeries({
+          color: '#F97316',
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          title: '',
+        })
+        sma200Series.setData(sma200Data)
+      }
 
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
+      // 4. All-Time High Line: Gold/Yellow (#FACC15), Dashed 1.5px
+      const highAthNum = Number(data.high_ath)
+      if (!isNaN(highAthNum) && highAthNum > 0) {
+        candleSeries.createPriceLine({
+          price: highAthNum,
+          color: '#FACC15',
+          lineWidth: 1.5,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'ATH',
         })
       }
-    }
 
-    window.addEventListener('resize', handleResize)
+      // 5. 52-Week High Line: Purple (#A855F7), Dotted 1.5px (Omit if 52W High == ATH)
+      const high52wNum = Number(data.high_52w)
+      const isSameHigh = !isNaN(high52wNum) && !isNaN(highAthNum) && highAthNum > 0 && Math.abs(high52wNum - highAthNum) / highAthNum < 0.005
+      if (!isNaN(high52wNum) && high52wNum > 0 && !isSameHigh) {
+        candleSeries.createPriceLine({
+          price: high52wNum,
+          color: '#A855F7',
+          lineWidth: 1.5,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: '52W H',
+        })
+      }
 
-    return () => {
-      window.removeEventListener('resize', handleResize)
-      chart.remove()
+      // 6. Volume Histogram Series (Occupy lower 18%, prevent price scale badge collision)
+      const volumeSeries = chart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+        lastValueVisible: false,
+        priceLineVisible: false,
+      })
+
+      chart.priceScale('volume').applyOptions({
+        scaleMargins: { top: 0.82, bottom: 0.0 },
+        borderVisible: false,
+      })
+
+      const volumeData = candleData.map((c, idx) => {
+        const rawVol = Number(rawCandles[idx]?.volume)
+        const volVal = !isNaN(rawVol) ? rawVol : 0
+        return {
+          time: c.time,
+          value: volVal,
+          color: c.close >= c.open 
+            ? 'rgba(16, 185, 129, 0.35)' 
+            : 'rgba(239, 68, 68, 0.35)',
+        }
+      })
+      if (volumeData.length > 0) {
+        volumeSeries.setData(volumeData)
+      }
+
+      // Set Default / Initial Legend Data (Most recent candle)
+      if (candleData.length > 0) {
+        const lastCandle = candleData[candleData.length - 1]
+        const lastRawVol = volumeData.length > 0 ? volumeData[volumeData.length - 1].value : 0
+        const defaultLegend = {
+          time: lastCandle.time,
+          open: lastCandle.open,
+          high: lastCandle.high,
+          low: lastCandle.low,
+          close: lastCandle.close,
+          volume: lastRawVol,
+          sma50: sma50Data.length > 0 ? sma50Data[sma50Data.length - 1].value : null,
+          sma200: sma200Data.length > 0 ? sma200Data[sma200Data.length - 1].value : null,
+        }
+        setLegendData(defaultLegend)
+
+        // 7. Subscribe to Real-Time Crosshair Movement
+        chart.subscribeCrosshairMove((param) => {
+          if (
+            !param.point ||
+            !param.time ||
+            param.point.x < 0 ||
+            param.point.x > container.clientWidth ||
+            param.point.y < 0 ||
+            param.point.y > container.clientHeight
+          ) {
+            setLegendData(defaultLegend)
+            return
+          }
+
+          const candle = param.seriesData.get(candleSeries)
+          const sma50Val = sma50Series ? param.seriesData.get(sma50Series) : null
+          const sma200Val = sma200Series ? param.seriesData.get(sma200Series) : null
+          const volVal = volumeSeries ? param.seriesData.get(volumeSeries) : null
+
+          if (candle) {
+            setLegendData({
+              time: param.time,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: volVal ? volVal.value : (candle?.volume || 0),
+              sma50: sma50Val ? sma50Val.value : null,
+              sma200: sma200Val ? sma200Val.value : null,
+            })
+          } else {
+            setLegendData(defaultLegend)
+          }
+        })
+      }
+
+      candleDataRef.current = candleData
+      applyRange(activeRange, chart, candleData)
+
+      const handleResize = () => {
+        if (chartContainerRef.current) {
+          chart.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight,
+          })
+        }
+      }
+
+      window.addEventListener('resize', handleResize)
+
+      return () => {
+        window.removeEventListener('resize', handleResize)
+        if (chartRef.current) {
+          chartRef.current.remove()
+          chartRef.current = null
+        }
+      }
+    } catch (e) {
+      console.error('Error rendering Lightweight Charts:', e)
+      setError(e.message || 'Failed to render chart')
     }
   }, [data, isDark])
 
@@ -291,6 +352,15 @@ export default function ChartModal({ symbol, onClose, theme }) {
       return `${time.day} ${months[time.month - 1] || time.month} ${time.year}`
     }
     return String(time)
+  }
+
+  const formatVolume = (val) => {
+    const num = Number(val)
+    if (isNaN(num) || num <= 0) return '0'
+    if (num >= 1e7) return `${(num / 1e7).toFixed(2)} Cr`
+    if (num >= 1e5) return `${(num / 1e5).toFixed(2)} L`
+    if (num >= 1e3) return `${(num / 1e3).toFixed(1)} k`
+    return num.toLocaleString('en-IN')
   }
 
   return (
@@ -374,14 +444,34 @@ export default function ChartModal({ symbol, onClose, theme }) {
             </div>
           )}
 
-          {/* Close Button */}
-          <button
-            onClick={onClose}
-            className="p-2 text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB] rounded-xl hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] transition-colors"
-            title="Close (or click outside / press Esc)"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {/* Header Right Actions: Range Selector & Close */}
+          <div className="flex items-center gap-2.5">
+            {/* Range Selector */}
+            <div className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl text-xs">
+              {['6M', '1Y', '3Y', 'All'].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => handleRangeChange(r)}
+                  className={`px-2.5 py-1 rounded-lg transition-colors font-medium ${
+                    activeRange === r
+                      ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-semibold'
+                      : 'text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+
+            {/* Close Button */}
+            <button
+              onClick={onClose}
+              className="p-2 text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB] rounded-xl hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] transition-colors"
+              title="Close (or click outside / press Esc)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Real-time Dynamic Crosshair Legend Bar */}
@@ -412,9 +502,9 @@ export default function ChartModal({ symbol, onClose, theme }) {
                   {(legendData.close - legendData.open).toFixed(2)} ({legendData.close >= legendData.open ? '+' : ''}{(((legendData.close - legendData.open) / legendData.open) * 100).toFixed(2)}%)
                 </span>
               )}
-              {legendData.volume && (
+              {legendData.volume !== undefined && legendData.volume !== null && (
                 <span>
-                  Vol: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{(legendData.volume >= 1e6 ? `${(legendData.volume / 1e6).toFixed(2)}M` : legendData.volume >= 1e3 ? `${(legendData.volume / 1e3).toFixed(1)}k` : legendData.volume)}</span>
+                  Vol: <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">{formatVolume(legendData.volume)}</span>
                 </span>
               )}
             </div>
