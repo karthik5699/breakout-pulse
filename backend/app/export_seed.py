@@ -15,20 +15,32 @@ def export_cache(as_of_date: Optional[str] = None):
         print("No market_data.db found to export.")
         return
 
-    # Load universe names
+    # Load universe names and listing dates
     stock_names = {}
+    stock_listing_dates = {}
     if os.path.exists(CSV_PATH):
         import csv
         with open(CSV_PATH, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                cleaned = {k.strip(): v.strip() for k, v in row.items() if k is not None}
+                cleaned = {k.strip(): (v or "").strip() for k, v in row.items() if k is not None and not isinstance(v, list)}
                 sym = cleaned.get("SYMBOL", "").strip().upper()
                 if sym:
                     stock_names[sym] = cleaned.get("NAME OF COMPANY", sym).strip()
+                    stock_listing_dates[sym] = cleaned.get("DATE OF LISTING", "").strip()
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
+    # Safeguard: ensure database has sufficient multi-year historical depth
+    # Overwriting the pre-calculated 5-year cache from SQLite requires at least 1,500 stocks with >= 200 trading days
+    cursor.execute("SELECT COUNT(*) FROM (SELECT symbol FROM daily_candles GROUP BY symbol HAVING COUNT(*) >= 200)")
+    mature_row = cursor.fetchone()
+    mature_count = mature_row[0] if mature_row else 0
+    if mature_count < 1500:
+        print(f"Skipping cache overwrite: only {mature_count} stocks have >= 200 trading days in SQLite. Full universe history required (>= 1,500 mature stocks). Existing cache preserved.")
+        conn.close()
+        return 0
 
     # Load verified lifetime ATHs from stock_ath table
     stock_aths = {}
@@ -108,11 +120,32 @@ def export_cache(as_of_date: Optional[str] = None):
         vol_multiple = round(volumes[-1] / vol_sma50, 2) if vol_sma50 > 0 else 1.0
         is_vol_confirmed = bool(passes_liquidity and vol_multiple >= 1.4 and volumes[-1] >= 5000)
 
+        # Determine genuine recent listing from official exchange listing date
+        is_recent = False
+        list_date_str = stock_listing_dates.get(sym)
+        if list_date_str:
+            try:
+                dt = datetime.strptime(list_date_str, "%d-%b-%Y")
+                is_recent = (datetime.now() - dt).days <= 730
+            except Exception:
+                is_recent = bool(n_bars < 500)
+        else:
+            is_recent = bool(n_bars < 500)
+
+        # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
+        is_above_mas = True
+        if n_bars >= 50 and current_price < sma50:
+            is_above_mas = False
+        if n_bars >= 200 and current_price < sma200:
+            is_above_mas = False
+
         # Status categorization:
-        is_recent = bool(n_bars < 500)
         if not passes_liquidity:
             status = "ILLIQUID"
             status_label = "Illiquid / Inactive"
+        elif not is_above_mas:
+            status = "CONSOLIDATING"
+            status_label = "Consolidating"
         elif is_recent and dist_to_52w >= -10.0:
             status = "RECENT_LISTING"
             status_label = "Recent Listing (<2Y)"
@@ -132,6 +165,7 @@ def export_cache(as_of_date: Optional[str] = None):
         # Stage 2 Trend Check: Price > 50 SMA > 200 SMA
         passes_trend = bool(passes_liquidity and current_price > sma50 > sma200 and n_bars >= 100)
 
+        from backend.app.universe_store import universe_store
         name = stock_names.get(sym, sym)
 
         item = {
@@ -158,7 +192,9 @@ def export_cache(as_of_date: Optional[str] = None):
             "sma50": round(sma50, 2),
             "sma200": round(sma200, 2),
             "passes_trend_check": passes_trend,
-            "passes_liquidity": passes_liquidity
+            "passes_liquidity": passes_liquidity,
+            "is_fno": universe_store.is_fno(sym),
+            "fno_lot_size": universe_store.get_fno_lot_size(sym)
         }
         results.append(item)
 

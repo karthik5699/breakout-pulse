@@ -124,25 +124,29 @@ class ScreenerEngine:
         self,
         df: pd.DataFrame,
         rs_sm: int,
-        rs_n50: int
+        rs_n50: int,
+        symbol: Optional[str] = None
     ) -> HighLowAnalysis:
         """
         Executes:
         1. Thin Trading & Liquidity Check (>=18/20 active days, >= ₹25 Lakhs turnover)
         2. Trend & 200 SMA 60-day Momentum Slope Check (Price > 50 SMA > 200 SMA, 200 SMA rising >= 2%)
-        3. History check (>= 500 trading days for ATH eligibility)
+        3. History check (>= 500 trading days for ATH eligibility, official listing date for Recent Listing)
         4. Volume Confirmation (Volume Multiple >= 1.4x 50-day average)
-        5. Exact Non-Overlapping Categorization:
-           - Near 52W High (-10%): price >= 52W_High * 0.90 AND price < 52W_High * 0.995
-           - At 52W High (Not ATH): price >= 52W_High * 0.995 AND 52W_High < ATH * 0.95
+        5. Strict Moving Average Rule:
+           A stock CANNOT enter breakout categories (NEAR_ATH, AT_52W_HIGH, NEAR_52W_HIGH, RECENT_LISTING)
+           if it trades below its 50 SMA or below its 200 SMA (for mature stocks).
+        6. Exact Non-Overlapping Categorization:
+           - Near 52W High (-10%): price >= 52W_High * 0.90 AND price < 52W_High * 0.99
+           - At 52W High (Not ATH): price >= 52W_High * 0.99 AND 52W_High < ATH * 0.95
            - Near ATH (±5%): price >= ATH * 0.95 AND price <= ATH * 1.05 (requires trading_days >= ath_min_trading_days)
-           - Recent Listing (< 2Y): trading_days < ath_min_trading_days AND price >= 52W_High * 0.90
+           - Recent Listing (< 2Y): exchange listing date within last 2 years AND price >= 52W_High * 0.90
         """
         total_bars = len(df)
         row = df.iloc[-1]
         c = float(row["close"])
         prev_c = float(df.iloc[-2]["close"]) if total_bars > 1 else c
-        change_pct = round(((c - prev_c) / prev_c) * 100.0, 2)
+        change_pct = round(((c - prev_c) / prev_c) * 100.0, 2) if prev_c > 0 else 0.0
 
         vol = float(row["volume"])
         vol_sma50 = float(row.get("vol_sma50", vol)) if not pd.isna(row.get("vol_sma50")) else vol
@@ -156,7 +160,23 @@ class ScreenerEngine:
         dist_52w = round(((c - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
         dist_ath = round(((c - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
 
-        is_recent_listing = (total_bars < self.ath_min_trading_days)
+        # Check official listing date from universe metadata to prevent old stocks from becoming fake recent listings
+        is_recent_listing = False
+        if symbol:
+            try:
+                from backend.app.universe_store import universe_store
+                from datetime import datetime
+                meta = universe_store.get(symbol)
+                if meta and meta.listing_date:
+                    dt = datetime.strptime(meta.listing_date.strip(), "%d-%b-%Y")
+                    # Genuine IPO listed on exchange within the last 730 days (2 years)
+                    is_recent_listing = (datetime.now() - dt).days <= 730
+                else:
+                    is_recent_listing = (total_bars < self.ath_min_trading_days)
+            except Exception:
+                is_recent_listing = (total_bars < self.ath_min_trading_days)
+        else:
+            is_recent_listing = (total_bars < self.ath_min_trading_days)
 
         # 1. Thin Trading & Liquidity Filter
         last_20 = df.iloc[-min(20, total_bars):]
@@ -197,28 +217,31 @@ class ScreenerEngine:
 
         passes_trend = (len(trend_reasons) == 0)
 
-        # 3. Mathematical Categorization Logic
-        # Rules:
-        # Near 52W High: current_price >= (high_52w * 0.90) and current_price < (high_52w * 0.995)
-        # At 52W High (Not ATH): current_price >= (high_52w * 0.995) and high_52w < (high_ath * 0.95)
-        # Near / At ATH: current_price >= (high_ath * 0.95) and current_price <= (high_ath * 1.05) [requires history >= 500 days]
-        # Recent Listing (<2Y): total_bars < 500 days and current_price >= (high_52w * 0.90)
+        # 3. Strict Moving Average Requirement for Breakout Setups
+        # Price must NOT trade below 50 SMA (if formed) or below 200 SMA (if formed for mature stocks)
+        is_above_mas = True
+        if sma50 is not None and total_bars >= 50 and c < sma50:
+            is_above_mas = False
+        if sma200 is not None and total_bars >= 200 and c < sma200:
+            is_above_mas = False
 
         status = "OTHER"
         status_label = "Other / Consolidating"
 
-        if is_recent_listing and c >= (high_52w * 0.90):
-            status = "RECENT_LISTING"
-            status_label = "Recent Listing (<2Y)"
-        elif not is_recent_listing and c >= (high_ath * 0.95) and c <= (high_ath * 1.05):
-            status = "NEAR_ATH"
-            status_label = "All-Time High (ATH)"
-        elif c >= (high_52w * 0.99) and high_52w < (high_ath * 0.95):
-            status = "AT_52W_HIGH"
-            status_label = "52-Week High Breakout"
-        elif c >= (high_52w * 0.90) and c < (high_52w * 0.99):
-            status = "NEAR_52W_HIGH"
-            status_label = "Near 52-Week High (-10%)"
+        # Only stocks trading above their moving averages are eligible for momentum breakout categories
+        if is_above_mas:
+            if is_recent_listing and c >= (high_52w * 0.90):
+                status = "RECENT_LISTING"
+                status_label = "Recent Listing (<2Y)"
+            elif not is_recent_listing and c >= (high_ath * 0.95) and c <= (high_ath * 1.05):
+                status = "NEAR_ATH"
+                status_label = "All-Time High (ATH)"
+            elif c >= (high_52w * 0.99) and high_52w < (high_ath * 0.95):
+                status = "AT_52W_HIGH"
+                status_label = "52-Week High Breakout"
+            elif c >= (high_52w * 0.90) and c < (high_52w * 0.99):
+                status = "NEAR_52W_HIGH"
+                status_label = "Near 52-Week High (-10%)"
 
         return HighLowAnalysis(
             current_price=round(c, 2),
@@ -264,11 +287,12 @@ class ScreenerEngine:
 
         rs_ratings = self.compute_rs_ratings(computed_dfs, smallmid_bench_df, nifty50_bench_df)
 
+        from backend.app.universe_store import universe_store
         items: List[StockScreenerItem] = []
         for sym, df in computed_dfs.items():
             name = stock_names.get(sym, sym)
             rs_sm, rs_n50 = rs_ratings.get(sym, (50, 50))
-            analysis = self.analyze_stock(df, rs_sm, rs_n50)
+            analysis = self.analyze_stock(df, rs_sm, rs_n50, symbol=sym)
 
             item = StockScreenerItem(
                 symbol=sym,
@@ -295,7 +319,9 @@ class ScreenerEngine:
                 sma200=analysis.sma200,
                 sma200_slope_60d_pct=analysis.sma200_slope_60d_pct,
                 passes_trend_check=analysis.passes_trend_check,
-                passes_liquidity=analysis.passes_liquidity
+                passes_liquidity=analysis.passes_liquidity,
+                is_fno=universe_store.is_fno(sym),
+                fno_lot_size=universe_store.get_fno_lot_size(sym)
             )
             items.append(item)
 

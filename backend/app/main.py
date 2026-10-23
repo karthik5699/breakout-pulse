@@ -4,10 +4,12 @@ import pandas as pd
 import json
 import asyncio
 import logging
+import threading
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import yfinance as yf
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Query, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -52,6 +54,9 @@ scan_state = {
     "cached_results": []
 }
 
+# Guards Bhavcopy ingestion (scan + upload) so concurrent requests don't write SQLite/cache simultaneously
+_scan_lock = threading.Lock()
+
 def _load_initial_cache():
     """Loads pre-seeded screener cache so the dashboard is immediately populated on cloud launch."""
     global scan_state
@@ -59,7 +64,12 @@ def _load_initial_cache():
         try:
             with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-                items = [StockScreenerItem(**x) for x in payload.get("results", [])]
+                items = []
+                for x in payload.get("results", []):
+                    sym = x.get("symbol", "")
+                    x["is_fno"] = universe_store.is_fno(sym)
+                    x["fno_lot_size"] = universe_store.get_fno_lot_size(sym)
+                    items.append(StockScreenerItem(**x))
                 if items:
                     scan_state["cached_results"] = items
                     scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -140,16 +150,53 @@ def health_check():
     }
 
 
+def _is_above_mas(x: StockScreenerItem) -> bool:
+    """A momentum setup must at minimum trade above its 50 DMA and 200 DMA (if available)."""
+    p = x.current_price
+    if p is None or p <= 0:
+        return False
+    # If 50 DMA exists, price must be above 50 DMA
+    if x.sma50 is not None and p < x.sma50:
+        return False
+    # If 200 DMA exists (for mature stocks with >= 200 trading days), price must be above 200 DMA
+    if x.sma200 is not None and (x.trading_days or 500) >= 200 and p < x.sma200:
+        return False
+    return True
+
+def _is_recent(x: StockScreenerItem) -> bool:
+    """Genuine recent listing as computed by the engines (official listing date, bar-count fallback)."""
+    if x.is_recently_listed is not None:
+        return bool(x.is_recently_listed)
+    return (x.trading_days or 500) < 500
+
 def _is_ath(x: StockScreenerItem) -> bool:
-    # Within +-10% of ATH (Early setups & active breakouts)
-    return bool(x.dist_to_ath_pct >= -10.0 and x.dist_to_ath_pct <= 10.0 and (x.trading_days or 500) >= 500 and x.passes_liquidity)
+    # Within +-10% of ATH (Early setups & active breakouts), mature stock, and trading above MA50 & MA200
+    return bool(
+        x.dist_to_ath_pct >= -10.0 and 
+        x.dist_to_ath_pct <= 10.0 and 
+        (x.trading_days or 500) >= 500 and 
+        not _is_recent(x) and
+        x.passes_liquidity and 
+        _is_above_mas(x)
+    )
 
 def _is_recent_listing(x: StockScreenerItem) -> bool:
-    return bool((x.trading_days or 500) < 500 and x.dist_to_52w_high_pct >= -10.0 and x.passes_liquidity)
+    return bool(
+        _is_recent(x) and 
+        x.dist_to_52w_high_pct >= -10.0 and 
+        x.passes_liquidity and 
+        _is_above_mas(x)
+    )
 
 def _is_near_52w(x: StockScreenerItem) -> bool:
-    # Within 10% of 52W High, excluding ATH and Recent Listings to guarantee ZERO duplicates
-    return bool(x.dist_to_52w_high_pct >= -10.0 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity)
+    # Within 10% of 52W High, excluding ATH and Recent Listings to guarantee ZERO duplicates, trading above MA50 & MA200
+    return bool(
+        x.dist_to_52w_high_pct >= -10.0 and 
+        not _is_ath(x) and 
+        not _is_recent_listing(x) and 
+        x.passes_liquidity and 
+        _is_above_mas(x)
+    )
 
 
 @app.get("/api/universe-stats", response_model=UniverseStats)
@@ -164,7 +211,7 @@ def get_universe_stats():
     near_ath = sum(1 for x in results if _is_ath(x))
     recent_listing = sum(1 for x in results if _is_recent_listing(x))
     near_52w = sum(1 for x in results if _is_near_52w(x))
-    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity)
+    at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity and _is_above_mas(x))
     confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and (_is_ath(x) or _is_near_52w(x) or _is_recent_listing(x)))
 
     # Small/Midcap Benchmark Trend
@@ -207,7 +254,7 @@ def get_universe_stats():
 def get_screened_stocks(
     tab: str = Query("ath", description="Filter tab: ath, near_52w, breakout_52w, recent_listings, all"),
     volume_confirmed_only: bool = Query(True, description="Default view shows only volume confirmed (>=1.4x) stocks"),
-    trend_only: bool = Query(False, description="Filter only stocks passing trend checks"),
+    trend_only: bool = Query(True, description="Filter only stocks passing Stage 2 trend checks (Price > 50 > 200 SMA)"),
     search: Optional[str] = Query(None, description="Search by symbol or company name"),
     min_rs: int = Query(0, description="Minimum Small/Midcap RS rating (e.g. 70)"),
     limit: int = Query(250, description="Max items to return")
@@ -228,7 +275,7 @@ def get_screened_stocks(
     elif tab == "near_52w":
         filtered = [x for x in filtered if _is_near_52w(x)]
     elif tab == "breakout_52w":
-        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x)]
+        filtered = [x for x in filtered if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x) and _is_above_mas(x)]
     elif tab == "recent_listings":
         filtered = [x for x in filtered if _is_recent_listing(x)]
 
@@ -343,14 +390,17 @@ def get_stock_chart(symbol: str, response: Response):
         dist_to_ath_pct=round(dist_ath, 2),
         volume_multiple=round(vol_mult, 2),
         is_volume_confirmed=bool(vol_mult >= 1.4 and vol_last >= 5000),
-        turnover_cr=round(turnover_cr, 2)
+        turnover_cr=round(turnover_cr, 2),
+        is_fno=universe_store.is_fno(clean_sym),
+        fno_lot_size=universe_store.get_fno_lot_size(clean_sym)
     )
 
 
 @app.post("/api/scan")
 def trigger_scan():
     global scan_state
-    if scan_state["is_scanning"]:
+    # Sync endpoints run in a threadpool, so use a lock to prevent two concurrent scans
+    if not _scan_lock.acquire(blocking=False):
         return {"status": "already_running", "message": "Scan already in progress."}
     
     scan_state["is_scanning"] = True
@@ -371,8 +421,20 @@ def trigger_scan():
             "trade_date": result.get("trade_date"),
             "stocks_updated": result.get("stocks_updated", 0)
         }
+    except Exception as e:
+        logger.error(f"Error during Bhavcopy scan: {e}", exc_info=True)
+        scan_state["scan_message"] = f"Scan error: {e}"
+        scan_state["scan_status_type"] = "error"
+        return {
+            "status": "error",
+            "is_today_available": False,
+            "message": f"Scan failed: {e}",
+            "trade_date": None,
+            "stocks_updated": 0
+        }
     finally:
         scan_state["is_scanning"] = False
+        _scan_lock.release()
 
 
 @app.get("/api/scan-status")
@@ -391,17 +453,20 @@ def get_scan_status():
 @app.post("/api/upload-bhavcopy")
 async def upload_bhavcopy(file: UploadFile = File(...)):
     """Uploads and ingests official NSE Bhavcopy (pd*.csv, sec_bhavdata*.csv, or PR*.zip)."""
+    if not _scan_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A market scan / ingestion is already in progress. Please retry shortly.")
     try:
         from backend.app.bhavcopy_engine import bhavcopy_engine
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         
-        stocks, t_date = bhavcopy_engine.parse_bhavcopy_file(content, file.filename)
+        stocks, t_date = await run_in_threadpool(bhavcopy_engine.parse_bhavcopy_file, content, file.filename or "")
         if not stocks:
             raise HTTPException(status_code=400, detail="No valid equity stocks found in uploaded Bhavcopy.")
             
-        count = bhavcopy_engine.ingest_stocks_to_db(stocks, t_date)
+        # Heavy SQLite write + full screener recompute: keep it off the event loop
+        count = await run_in_threadpool(bhavcopy_engine.ingest_stocks_to_db, stocks, t_date)
         _load_initial_cache()
         scan_state["latest_data_date"] = t_date
         scan_state["last_scanned"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -411,9 +476,13 @@ async def upload_bhavcopy(file: UploadFile = File(...)):
             "trade_date": t_date,
             "stocks_updated": count
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to process uploaded Bhavcopy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _scan_lock.release()
 
 
 @app.post("/api/upload-csv")
@@ -423,6 +492,11 @@ async def upload_universe_csv(file: UploadFile = File(...), replace: bool = Form
         lines = content.decode("utf-8", errors="ignore").splitlines()
         if not lines:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+        # Guard against wiping the universe with a CSV that has no SYMBOL column
+        header_cols = [h.strip().lstrip("\ufeff").upper() for h in lines[0].split(",")]
+        if "SYMBOL" not in header_cols:
+            raise HTTPException(status_code=400, detail="CSV must contain a 'SYMBOL' column header.")
         
         imported_count = universe_store.save_uploaded_csv(lines, overwrite=replace)
         return {
@@ -430,6 +504,8 @@ async def upload_universe_csv(file: UploadFile = File(...), replace: bool = Form
             "message": f"Imported {imported_count} NSE stocks into persistent universe.",
             "total_universe": universe_store.total_count()
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to process uploaded CSV: {e}")
         raise HTTPException(status_code=500, detail=str(e))

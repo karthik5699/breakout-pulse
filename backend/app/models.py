@@ -10,6 +10,8 @@ class StockMeta(BaseModel):
     market_cap: Optional[str] = ""
     listing_date: Optional[str] = None
     face_value: Optional[float] = None
+    is_fno: bool = False
+    fno_lot_size: Optional[int] = None
 
 class Candle(BaseModel):
     time: str          # YYYY-MM-DD
@@ -75,6 +77,8 @@ class StockScreenerItem(BaseModel):
     sma200_slope_60d_pct: Optional[float] = None
     passes_trend_check: Optional[bool] = False
     passes_liquidity: Optional[bool] = True
+    is_fno: bool = False
+    fno_lot_size: Optional[int] = None
 
 class ChartPayload(BaseModel):
     symbol: str
@@ -87,6 +91,8 @@ class ChartPayload(BaseModel):
     volume_multiple: float
     is_volume_confirmed: bool
     turnover_cr: Optional[float] = 0.0
+    is_fno: bool = False
+    fno_lot_size: Optional[int] = None
 
 class UniverseStats(BaseModel):
     total_stocks: int

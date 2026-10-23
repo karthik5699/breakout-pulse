@@ -88,7 +88,7 @@ class BhavcopyEngine:
         trade_date = None
 
         for row in reader:
-            cleaned = {k.strip().upper(): v.strip() for k, v in row.items() if k is not None}
+            cleaned = {k.strip().upper(): (v or "").strip() for k, v in row.items() if k is not None and not isinstance(v, list)}
             symbol = cleaned.get("SYMBOL", "").strip().upper()
             series = cleaned.get("SERIES", "").strip().upper()
 
@@ -158,19 +158,24 @@ class BhavcopyEngine:
 
         if filename.lower().endswith(".zip") or zipfile.is_zipfile(io.BytesIO(content)):
             with zipfile.ZipFile(io.BytesIO(content)) as z:
-                pd_files = [f for f in z.namelist() if f.lower().startswith("pd") and f.lower().endswith(".csv")]
-                target_name = pd_files[0] if pd_files else [f for f in z.namelist() if f.lower().endswith(".csv")][0]
+                csv_files = [f for f in z.namelist() if f.lower().endswith(".csv")]
+                pd_files = [f for f in csv_files if os.path.basename(f).lower().startswith("pd")]
+                if not csv_files:
+                    return [], trade_date
+                target_name = pd_files[0] if pd_files else csv_files[0]
                 
                 with z.open(target_name) as f:
                     csv_text = f.read().decode("utf-8-sig", errors="ignore")
-                    if target_name.lower().startswith("pd"):
+                    if os.path.basename(target_name).lower().startswith("pd"):
                         return self.parse_pd_csv(csv_text, default_date=trade_date)
-                    return self.parse_sec_bhavdata(csv_text)
+                    stocks, csv_date = self.parse_sec_bhavdata(csv_text)
+                    return stocks, csv_date or trade_date
 
         csv_text = content.decode("utf-8-sig", errors="ignore")
         if "PREV_CL_PR" in csv_text or "NET_TRDVAL" in csv_text:
             return self.parse_pd_csv(csv_text, default_date=trade_date)
-        return self.parse_sec_bhavdata(csv_text)
+        stocks, csv_date = self.parse_sec_bhavdata(csv_text)
+        return stocks, csv_date or trade_date
 
     def fetch_bhavcopy_for_date(self, target_date: datetime) -> Optional[Tuple[List[Dict[str, Any]], str]]:
         """Checks if Bhavcopy for a specific date is published on NSE servers."""
@@ -237,6 +242,12 @@ class BhavcopyEngine:
         today_date = today.date()
         today_str = today.strftime("%Y-%m-%d")
         is_weekend = today.weekday() >= 5
+
+        # Refresh official NSE F&O underlying stock list during market sync
+        try:
+            universe_store.sync_fno_from_nse()
+        except Exception as e:
+            logger.debug(f"F&O list sync skipped: {e}")
 
         latest_recorded_str = self.get_latest_recorded_date()
         recorded_date = None
@@ -389,12 +400,36 @@ class BhavcopyEngine:
                 is_vol_confirmed = bool(passes_liq and vol_mult >= 1.4 and new_vol >= 5000)
                 turnover_cr = round(new_turnover / 1e7, 2) if new_turnover > 0 else float(item.get("turnover_cr") or 0.0)
 
-                # Status categorization
-                is_recent = bool(item.get("is_recently_listed", False))
+                # Moving Averages and Stage 2 Trend Check
+                sma50 = item.get("sma50")
+                sma200 = item.get("sma200")
                 n_bars = int(item.get("trading_days") or 500)
+                passes_trend = bool(passes_liq and sma50 and sma200 and new_close > sma50 > sma200)
+
+                # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
+                is_above_mas = True
+                if sma50 is not None and new_close < float(sma50):
+                    is_above_mas = False
+                if sma200 is not None and n_bars >= 200 and new_close < float(sma200):
+                    is_above_mas = False
+
+                # Validate genuine recent listing using official exchange listing date
+                is_recent = bool(item.get("is_recently_listed", False))
+                try:
+                    meta = universe_store.get(sym)
+                    if meta and meta.listing_date:
+                        dt = datetime.strptime(meta.listing_date.strip(), "%d-%b-%Y")
+                        is_recent = (datetime.now() - dt).days <= 730
+                except Exception:
+                    pass
+
+                # Status categorization
                 if not passes_liq:
                     status = "ILLIQUID"
                     status_label = "Illiquid / Inactive"
+                elif not is_above_mas:
+                    status = "CONSOLIDATING"
+                    status_label = "Consolidating"
                 elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
                     status = "NEAR_ATH"
                     status_label = "All-Time High (ATH)"
@@ -410,10 +445,6 @@ class BhavcopyEngine:
                 else:
                     status = "CONSOLIDATING"
                     status_label = "Consolidating"
-
-                sma50 = item.get("sma50")
-                sma200 = item.get("sma200")
-                passes_trend = bool(passes_liq and sma50 and sma200 and new_close > sma50 > sma200)
 
                 item["current_price"] = round(new_close, 2)
                 item["change_pct"] = change_pct
@@ -431,6 +462,8 @@ class BhavcopyEngine:
                 item["passes_trend_check"] = passes_trend
                 updated_count += 1
 
+            item["is_fno"] = universe_store.is_fno(sym)
+            item["fno_lot_size"] = universe_store.get_fno_lot_size(sym)
             updated_results.append(item)
 
         payload = {

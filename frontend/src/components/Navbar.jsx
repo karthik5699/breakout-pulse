@@ -87,7 +87,7 @@ export default function Navbar({
             <RefreshCw className={`w-3.5 h-3.5 ${scanStatus?.is_scanning ? 'animate-spin text-[#9CA3AF]' : 'text-white'}`} />
             <span className="hidden sm:inline">
               {scanStatus?.is_scanning 
-                ? `Scanning (${scanStatus.progress}/${scanStatus.total})` 
+                ? (scanStatus.total ? `Scanning (${scanStatus.progress}/${scanStatus.total})` : 'Scanning…')
                 : 'Scan Market'}
             </span>
           </button>

@@ -60,7 +60,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
     setLoading(true)
     setError(null)
 
-    fetch(`/api/stocks/${symbol}/chart`, { cache: 'no-store' })
+    fetch(`/api/stocks/${encodeURIComponent(symbol)}/chart`, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`)
         return res.json()
@@ -135,8 +135,9 @@ export default function ChartModal({ symbol, onClose, theme }) {
       })
 
       const rawCandles = data.candles || []
-      const candleData = rawCandles
+      const filteredRaw = rawCandles
         .filter((c) => c && c.time && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close))
+      const candleData = filteredRaw
         .map((c) => ({
           time: String(c.time),
           open: Number(c.open),
@@ -231,7 +232,7 @@ export default function ChartModal({ symbol, onClose, theme }) {
       })
 
       const volumeData = candleData.map((c, idx) => {
-        const rawVol = Number(rawCandles[idx]?.volume)
+        const rawVol = Number(filteredRaw[idx]?.volume)
         const volVal = !isNaN(rawVol) ? rawVol : 0
         return {
           time: c.time,
@@ -386,6 +387,14 @@ export default function ChartModal({ symbol, onClose, theme }) {
                 <h2 className="text-lg font-semibold text-[#111827] dark:text-[#F9FAFB] tracking-tight">
                   {symbol}
                 </h2>
+                {data?.is_fno && (
+                  <span
+                    className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase rounded bg-[#8069BF]/10 text-[#8069BF] dark:bg-[#8069BF]/20 dark:text-[#A78BFA] border border-[#8069BF]/20 leading-none"
+                    title={data.fno_lot_size ? `NSE F&O Stock • Lot Size: ${data.fno_lot_size}` : 'NSE F&O Stock'}
+                  >
+                    F&O
+                  </span>
+                )}
                 <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF] font-normal">NSE Equities</span>
               </div>
               <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-xs sm:max-w-sm font-normal">

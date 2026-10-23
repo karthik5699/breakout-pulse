@@ -12,7 +12,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
   const [activeTab, setActiveTab] = useState('ath')
   const [volumeConfirmedOnly, setVolumeConfirmedOnly] = useState(true)
-  const [trendOnly, setTrendOnly] = useState(false)
+  const [trendOnly, setTrendOnly] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState('table')
   
@@ -25,6 +25,15 @@ export default function App() {
   const [toast, setToast] = useState(null)
 
   const wasScanningRef = useRef(false)
+  const stocksAbortRef = useRef(null)
+  const toastTimerRef = useRef(null)
+
+  // Debounce search input so we don't fire a request on every keystroke
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
 
   // Manage Dark Mode class on document
   useEffect(() => {
@@ -35,6 +44,26 @@ export default function App() {
     }
     localStorage.setItem('theme', theme)
   }, [theme])
+
+  // Show a toast, optionally auto-dismissing it (clears any previous pending dismissal)
+  const showToast = (nextToast, autoHideMs) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = null
+    }
+    setToast(nextToast)
+    if (autoHideMs) {
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null)
+        toastTimerRef.current = null
+      }, autoHideMs)
+    }
+  }
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    if (stocksAbortRef.current) stocksAbortRef.current.abort()
+  }, [])
 
   // Fetch universe statistics
   const fetchStats = async () => {
@@ -51,6 +80,11 @@ export default function App() {
 
   // Fetch stocks according to current filters
   const fetchStocks = async () => {
+    // Abort any in-flight request so a slower, older response can't overwrite newer results
+    if (stocksAbortRef.current) stocksAbortRef.current.abort()
+    const controller = new AbortController()
+    stocksAbortRef.current = controller
+
     setLoading(true)
     try {
       const params = new URLSearchParams({
@@ -58,19 +92,19 @@ export default function App() {
         volume_confirmed_only: volumeConfirmedOnly,
         trend_only: trendOnly,
       })
-      if (searchQuery.trim()) {
-        params.append('search', searchQuery.trim())
+      if (debouncedSearch.trim()) {
+        params.append('search', debouncedSearch.trim())
       }
 
-      const res = await fetch(`/api/stocks?${params.toString()}`)
+      const res = await fetch(`/api/stocks?${params.toString()}`, { signal: controller.signal })
       if (res.ok) {
         const data = await res.json()
-        setStocks(data)
+        if (!controller.signal.aborted) setStocks(data)
       }
     } catch (err) {
-      console.error('Failed to fetch stocks:', err)
+      if (err.name !== 'AbortError') console.error('Failed to fetch stocks:', err)
     } finally {
-      setLoading(false)
+      if (stocksAbortRef.current === controller) setLoading(false)
     }
   }
 
@@ -80,12 +114,15 @@ export default function App() {
 
   useEffect(() => {
     fetchStocks()
-  }, [activeTab, volumeConfirmedOnly, trendOnly, searchQuery])
+  }, [activeTab, volumeConfirmedOnly, trendOnly, debouncedSearch])
 
-  // Scan status polling and notification triggers
+  // Scan trigger and notification handling
   const handleTriggerScan = async () => {
+    if (wasScanningRef.current) return
+    wasScanningRef.current = true
+    setScanStatus({ is_scanning: true })
     try {
-      setToast({
+      showToast({
         type: 'info',
         message: "Checking official NSE servers for latest market data..."
       })
@@ -96,24 +133,25 @@ export default function App() {
       await fetchStocks()
 
       if (data.status === 'success' || data.is_today_available || (data.stocks_updated && data.stocks_updated > 0)) {
-        setToast({
+        showToast({
           type: 'success',
           message: data.message || "Official NSE Bhavcopy successfully downloaded and loaded!"
-        })
+        }, 8000)
       } else {
-        setToast({
+        showToast({
           type: 'info',
           message: data.message || "Displaying latest available session data."
-        })
+        }, 8000)
       }
-      setTimeout(() => setToast(null), 8000)
     } catch (err) {
       console.error('Failed to trigger scan:', err)
-      setToast({
+      showToast({
         type: 'info',
         message: 'Could not complete Bhavcopy check.'
-      })
-      setTimeout(() => setToast(null), 5000)
+      }, 5000)
+    } finally {
+      wasScanningRef.current = false
+      setScanStatus({ is_scanning: false })
     }
   }
 

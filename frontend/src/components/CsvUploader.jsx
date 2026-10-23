@@ -39,8 +39,8 @@ export default function CsvUploader({ isOpen, onClose, onUploadSuccess, stats })
       })
 
       if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.detail || 'Failed to process file')
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || `Failed to process file (HTTP ${res.status})`)
       }
 
       const data = await res.json()

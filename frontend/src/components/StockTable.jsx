@@ -147,6 +147,14 @@ export default function StockTable({ stocks, onSelectStock, loading }) {
                       <div>
                         <div className="font-semibold text-sm tracking-tight text-[#111827] dark:text-[#F9FAFB] flex items-center gap-1.5">
                           {s.symbol}
+                          {s.is_fno && (
+                            <span
+                              className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase rounded bg-[#8069BF]/10 text-[#8069BF] dark:bg-[#8069BF]/20 dark:text-[#A78BFA] border border-[#8069BF]/20 leading-none"
+                              title={s.fno_lot_size ? `NSE F&O Stock • Lot Size: ${s.fno_lot_size}` : 'NSE F&O Stock'}
+                            >
+                              F&O
+                            </span>
+                          )}
                           {s.passes_trend_check && (
                             <ShieldCheck className="w-3.5 h-3.5 text-[#9CA3AF] inline" title="Passes Stage 2 Trend Check" />
                           )}
