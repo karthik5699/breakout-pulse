@@ -1,5 +1,5 @@
 import React from 'react'
-import { Sun, Moon, RefreshCw, Upload, Search } from 'lucide-react'
+import { Sun, Moon, RefreshCw, Upload, Search, MessageCircle } from 'lucide-react'
 
 export default function Navbar({
   theme,
@@ -9,6 +9,7 @@ export default function Navbar({
   searchQuery,
   setSearchQuery,
   onOpenUpload,
+  onOpenWhatsApp,
   onTriggerScan,
   scanStatus
 }) {
@@ -90,6 +91,16 @@ export default function Navbar({
                 ? (scanStatus.total ? `Scanning (${scanStatus.progress}/${scanStatus.total})` : 'Scanning…')
                 : 'Scan Market'}
             </span>
+          </button>
+
+          {/* WhatsApp Digest & Alerts Button */}
+          <button
+            onClick={onOpenWhatsApp}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#16A34A] dark:text-[#22C55E] bg-[#16A34A]/10 hover:bg-[#16A34A]/20 rounded-xl transition-colors border border-[#16A34A]/25"
+            title="Send or configure WhatsApp Breakout Digest & Alerts"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">WhatsApp</span>
           </button>
 
           {/* Upload CSV */}

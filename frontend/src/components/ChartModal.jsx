@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts'
-import { X } from 'lucide-react'
+import { X, ChevronUp, ChevronDown, MessageCircle } from 'lucide-react'
 
-export default function ChartModal({ symbol, onClose, theme }) {
+export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose, theme }) {
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
   const candleDataRef = useRef([])
@@ -13,6 +13,39 @@ export default function ChartModal({ symbol, onClose, theme }) {
   const [legendData, setLegendData] = useState(null)
 
   const isDark = theme === 'dark'
+  const currentIndex = stocks.findIndex((s) => s.symbol === symbol)
+  const hasPrev = currentIndex > 0
+  const hasNext = currentIndex !== -1 && currentIndex < stocks.length - 1
+
+  const handlePrevStock = () => {
+    if (hasPrev && onSelectStock) {
+      onSelectStock(stocks[currentIndex - 1].symbol)
+    }
+  }
+
+  const handleNextStock = () => {
+    if (hasNext && onSelectStock) {
+      onSelectStock(stocks[currentIndex + 1].symbol)
+    }
+  }
+
+  const handleShareStockWhatsApp = () => {
+    const closePrice = data?.candles?.length ? data.candles[data.candles.length - 1].close : 0
+    const prevPrice = data?.candles?.length > 1 ? data.candles[data.candles.length - 2].close : closePrice
+    const chgPct = prevPrice > 0 ? (((closePrice - prevPrice) / prevPrice) * 100).toFixed(2) : '0.00'
+    const chgSign = Number(chgPct) >= 0 ? `+${chgPct}%` : `${chgPct}%`
+    const fnoTag = data?.is_fno ? ` [F&O${data.fno_lot_size ? ` • Lot: ${data.fno_lot_size}` : ''}]` : ''
+    const msg = [
+      `⚡ *${symbol}*${fnoTag} — *${data?.name || symbol}*`,
+      `💰 *Price:* ₹${Number(closePrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${chgSign})`,
+      `🔥 *Volume Signal:* ${Number(data?.volume_multiple || 1).toFixed(2)}x (Turnover: ₹${Number(data?.turnover_cr || 0).toFixed(2)} Cr)`,
+      `🎯 *52W High:* ₹${Number(data?.high_52w || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${Number(data?.dist_to_52w_high_pct || 0).toFixed(2)}%)`,
+      `👑 *All-Time High:* ₹${Number(data?.high_ath || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${Number(data?.dist_to_ath_pct || 0).toFixed(2)}%)`,
+      `_Shared via BreakoutPulse NSE Screener_`,
+    ].join('\n')
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   const applyRange = (rangeKey, chartInstance, candles) => {
     const ch = chartInstance || chartRef.current
@@ -44,16 +77,36 @@ export default function ChartModal({ symbol, onClose, theme }) {
     applyRange(r)
   }
 
-  // Handle Escape key to close
+  // Handle Escape key to close and Arrow keys to navigate stocks in current screened list
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
+      const target = e.composedPath ? e.composedPath()[0] : e.target
+      if (
+        target instanceof Element &&
+        target.matches(':read-write, select, input[type="range"], [role="slider"]')
+      ) {
+        return
+      }
+
       if (e.key === 'Escape') {
+        e.preventDefault()
         onClose()
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        if (hasNext && onSelectStock) {
+          e.preventDefault()
+          onSelectStock(stocks[currentIndex + 1].symbol)
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        if (hasPrev && onSelectStock) {
+          e.preventDefault()
+          onSelectStock(stocks[currentIndex - 1].symbol)
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [onClose, hasNext, hasPrev, currentIndex, stocks, onSelectStock])
 
   useEffect(() => {
     let isMounted = true
@@ -453,8 +506,48 @@ export default function ChartModal({ symbol, onClose, theme }) {
             </div>
           )}
 
-          {/* Header Right Actions: Range Selector & Close */}
-          <div className="flex items-center gap-2.5">
+          {/* Header Right Actions: Prev/Next Navigation, WhatsApp Share, Range Selector & Close */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Stock List Navigation (Keyboard ↑/↓) */}
+            {stocks.length > 1 && currentIndex !== -1 && (
+              <div
+                className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl text-xs"
+                title="Use ↑ / ↓ or ← / → arrow keys to cycle through screened stocks"
+              >
+                <button
+                  onClick={handlePrevStock}
+                  disabled={!hasPrev}
+                  className="p-1.5 rounded-lg text-[#111827] dark:text-[#F9FAFB] disabled:opacity-30 hover:bg-white dark:hover:bg-[#111827] transition-colors"
+                  aria-label="Previous stock (Up Arrow)"
+                >
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-2 text-[11px] font-medium tabular-nums text-[#6B7280] dark:text-[#9CA3AF]">
+                  {currentIndex + 1} / {stocks.length}
+                </span>
+                <button
+                  onClick={handleNextStock}
+                  disabled={!hasNext}
+                  className="p-1.5 rounded-lg text-[#111827] dark:text-[#F9FAFB] disabled:opacity-30 hover:bg-white dark:hover:bg-[#111827] transition-colors"
+                  aria-label="Next stock (Down Arrow)"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Share Setup on WhatsApp */}
+            {data && (
+              <button
+                onClick={handleShareStockWhatsApp}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[#16A34A] dark:text-[#22C55E] bg-[#16A34A]/10 hover:bg-[#16A34A]/20 border border-[#16A34A]/25 transition-colors"
+                title="Share this stock setup on WhatsApp"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+            )}
+
             {/* Range Selector */}
             <div className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl text-xs">
               {['6M', '1Y', '3Y', 'All'].map((r) => (

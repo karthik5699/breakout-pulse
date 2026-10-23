@@ -102,6 +102,7 @@ class UniverseStats(BaseModel):
     near_ath_count: int
     recent_listing_count: int
     confirmed_volume_count: int
+    fno_count: Optional[int] = 0
     last_scanned: Optional[str] = None
     latest_data_date: Optional[str] = None
     smallmid_trend: Optional[str] = None

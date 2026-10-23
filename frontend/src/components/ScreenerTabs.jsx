@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, ShieldCheck, LayoutGrid, List } from 'lucide-react'
+import { Flame, ShieldCheck, Layers, LayoutGrid, List } from 'lucide-react'
 
 export default function ScreenerTabs({
   activeTab,
@@ -8,6 +8,8 @@ export default function ScreenerTabs({
   setVolumeConfirmedOnly,
   trendOnly,
   setTrendOnly,
+  fnoOnly,
+  setFnoOnly,
   viewMode,
   setViewMode,
   totalResults
@@ -50,12 +52,12 @@ export default function ScreenerTabs({
           onClick={() => setVolumeConfirmedOnly(!volumeConfirmedOnly)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl transition-all border ${
             volumeConfirmedOnly
-              ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-bold border-transparent'
+              ? 'bg-[#16A34A]/10 dark:bg-[#22C55E]/15 text-[#16A34A] dark:text-[#22C55E] font-semibold border-[#16A34A]/30'
               : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
           }`}
           title="Toggle Volume Confirmation (>= 1.4x 50-day average volume)"
         >
-          <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
+          <Flame className={`w-3.5 h-3.5 ${volumeConfirmedOnly ? 'text-[#16A34A] dark:text-[#22C55E]' : 'text-[#9CA3AF]'}`} />
           <span>Volume Confirmed</span>
         </button>
 
@@ -64,13 +66,27 @@ export default function ScreenerTabs({
           onClick={() => setTrendOnly(!trendOnly)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl transition-all border ${
             trendOnly
-              ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-bold border-transparent'
+              ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-semibold border-[#D1D5DB] dark:border-[#374151]'
               : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
           }`}
           title="Filter only stocks with Price > 50 > 200 SMA and Rising 200 SMA"
         >
           <ShieldCheck className="w-3.5 h-3.5 text-[#9CA3AF]" />
           <span>Stage 2 Trend</span>
+        </button>
+
+        {/* F&O Filter Toggle */}
+        <button
+          onClick={() => setFnoOnly(!fnoOnly)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl transition-all border ${
+            fnoOnly
+              ? 'bg-[#8069BF]/15 text-[#8069BF] dark:text-[#A78BFA] font-semibold border-[#8069BF]/40'
+              : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
+          }`}
+          title="Filter only official NSE Futures & Options (F&O) stocks"
+        >
+          <Layers className={`w-3.5 h-3.5 ${fnoOnly ? 'text-[#8069BF] dark:text-[#A78BFA]' : 'text-[#9CA3AF]'}`} />
+          <span>F&O Only</span>
         </button>
 
         {/* View Switcher (Table vs Grid) */}

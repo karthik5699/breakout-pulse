@@ -1,0 +1,16 @@
+{
+  "phone_number": "918374830969",
+  "provider": "direct",
+  "auto_send_on_scan": false,
+  "include_ath": true,
+  "include_near_52w": true,
+  "volume_confirmed_only": true,
+  "fno_only": false,
+  "max_stocks_per_section": 8,
+  "callmebot_api_key": "",
+  "meta_phone_number_id": "",
+  "meta_access_token": "",
+  "twilio_account_sid": "",
+  "twilio_auth_token": "",
+  "twilio_from_number": "whatsapp:+14155238886"
+}
