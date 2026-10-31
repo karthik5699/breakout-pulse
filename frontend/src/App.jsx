@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import Navbar from './components/Navbar'
 import MarketBanner from './components/MarketBanner'
-import ScreenerTabs from './components/ScreenerTabs'
 import StockTable from './components/StockTable'
 import StockGrid from './components/StockGrid'
 import ChartModal from './components/ChartModal'
@@ -286,19 +285,13 @@ export default function App() {
       )}
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full">
-        {/* Market Overview & Distribution Cards */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex-1 w-full">
+        {/* Compact 4-Column View Switcher Cards + Unified Filter Strip */}
         <MarketBanner
           stats={stats}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           newlyAddedCount={newlyAddedSymbols.size}
-        />
-
-        {/* Screener Tabs & Controls */}
-        <ScreenerTabs
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
           volumeConfirmedOnly={volumeConfirmedOnly}
           setVolumeConfirmedOnly={setVolumeConfirmedOnly}
           trendOnly={trendOnly}
@@ -307,7 +300,6 @@ export default function App() {
           setFnoOnly={setFnoOnly}
           viewMode={viewMode}
           setViewMode={setViewMode}
-          totalResults={displayedStocks.length}
         />
 
         {/* Results List (Table or Grid) */}
