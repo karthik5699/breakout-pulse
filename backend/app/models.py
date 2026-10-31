@@ -107,3 +107,4 @@ class UniverseStats(BaseModel):
     latest_data_date: Optional[str] = None
     smallmid_trend: Optional[str] = None
     nifty50_trend: Optional[str] = None
+    vc_stage2_symbols: Optional[List[str]] = []

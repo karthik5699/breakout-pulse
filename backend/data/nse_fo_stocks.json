@@ -1,83 +1,71 @@
 {
   "source": "https://nsearchives.nseindia.com/content/fo/fo_mktlots.csv",
-  "last_updated": "2026-10-23 09:01:37",
-  "count": 213,
+  "last_updated": "2026-10-31 18:08:27",
+  "count": 218,
   "stocks": {
     "ADANIENSOL": {
       "name": "ADANI ENERGY SOLUTION LTD",
       "lot_size": 675
     },
-    "ALKEM": {
-      "name": "ALKEM LABORATORIES LTD.",
-      "lot_size": 125
+    "ANANDRATHI": {
+      "name": "ANAND RATHI WEALTH LTD",
+      "lot_size": 250
     },
-    "ABB": {
-      "name": "ABB INDIA LIMITED",
-      "lot_size": 125
+    "ADANIPORTS": {
+      "name": "ADANI PORT & SEZ LTD",
+      "lot_size": 475
+    },
+    "ADANIENT": {
+      "name": "ADANI ENTERPRISES LIMITED",
+      "lot_size": 309
     },
     "APLAPOLLO": {
       "name": "APL APOLLO TUBES LTD",
       "lot_size": 350
     },
-    "ADANIPOWER": {
-      "name": "ADANI POWER LTD",
-      "lot_size": 3550
-    },
-    "APOLLOHOSP": {
-      "name": "APOLLO HOSPITALS ENTER. L",
+    "ALKEM": {
+      "name": "ALKEM LABORATORIES LTD.",
       "lot_size": 125
-    },
-    "ABCAPITAL": {
-      "name": "ADITYA BIRLA CAPITAL LTD.",
-      "lot_size": 3100
-    },
-    "ASIANPAINT": {
-      "name": "ASIAN PAINTS LIMITED",
-      "lot_size": 250
-    },
-    "ANANDRATHI": {
-      "name": "ANAND RATHI WEALTH LTD",
-      "lot_size": 250
     },
     "ATHERENERG": {
       "name": "ATHER ENERGY LIMITED",
       "lot_size": 375
     },
+    "AUROPHARMA": {
+      "name": "AUROBINDO PHARMA LTD",
+      "lot_size": 550
+    },
     "BAJAJ-AUTO": {
       "name": "BAJAJ AUTO LIMITED",
       "lot_size": 75
     },
-    "BANKBARODA": {
-      "name": "BANK OF BARODA",
-      "lot_size": 2925
+    "ABCAPITAL": {
+      "name": "ADITYA BIRLA CAPITAL LTD.",
+      "lot_size": 1550
+    },
+    "APOLLOHOSP": {
+      "name": "APOLLO HOSPITALS ENTER. L",
+      "lot_size": 125
     },
     "BEL": {
       "name": "BHARAT ELECTRONICS LTD",
       "lot_size": 1425
     },
-    "BRITANNIA": {
-      "name": "BRITANNIA INDUSTRIES LTD",
-      "lot_size": 125
-    },
     "BHARATFORG": {
       "name": "BHARAT FORGE LTD",
       "lot_size": 500
-    },
-    "AUBANK": {
-      "name": "AU SMALL FINANCE BANK LTD",
-      "lot_size": 1000
-    },
-    "AXISBANK": {
-      "name": "AXIS BANK LIMITED",
-      "lot_size": 625
     },
     "BHARTIARTL": {
       "name": "BHARTI AIRTEL LIMITED",
       "lot_size": 475
     },
-    "ADANIPORTS": {
-      "name": "ADANI PORT & SEZ LTD",
-      "lot_size": 475
+    "BOSCHLTD": {
+      "name": "BOSCH LIMITED",
+      "lot_size": 25
+    },
+    "BLUESTARCO": {
+      "name": "BLUE STAR LIMITED",
+      "lot_size": 325
     },
     "BAJAJFINSV": {
       "name": "BAJAJ FINSERV LTD.",
@@ -87,41 +75,37 @@
       "name": "BAJAJ FINANCE LIMITED",
       "lot_size": 750
     },
-    "BANKINDIA": {
-      "name": "BANK OF INDIA",
-      "lot_size": 5200
-    },
-    "BANDHANBNK": {
-      "name": "BANDHAN BANK LIMITED",
-      "lot_size": 3600
-    },
-    "CHOLAFIN": {
-      "name": "CHOLAMANDALAM IN & FIN CO",
-      "lot_size": 625
-    },
-    "CIPLA": {
-      "name": "CIPLA LTD",
-      "lot_size": 425
-    },
-    "AMBUJACEM": {
-      "name": "AMBUJA CEMENTS LTD",
-      "lot_size": 1200
-    },
-    "COFORGE": {
-      "name": "COFORGE LIMITED",
-      "lot_size": 475
-    },
-    "COLPAL": {
-      "name": "COLGATE PALMOLIVE LTD.",
-      "lot_size": 275
+    "ABB": {
+      "name": "ABB INDIA LIMITED",
+      "lot_size": 125
     },
     "BSE": {
       "name": "BSE LIMITED",
       "lot_size": 200
     },
-    "CROMPTON": {
-      "name": "CROMPT GREA CON ELEC LTD",
-      "lot_size": 2150
+    "CDSL": {
+      "name": "CENTRAL DEPO SER (I) LTD",
+      "lot_size": 475
+    },
+    "BANDHANBNK": {
+      "name": "BANDHAN BANK LIMITED",
+      "lot_size": 3600
+    },
+    "BANKBARODA": {
+      "name": "BANK OF BARODA",
+      "lot_size": 2925
+    },
+    "CIPLA": {
+      "name": "CIPLA LTD",
+      "lot_size": 425
+    },
+    "BIOCON": {
+      "name": "BIOCON LIMITED.",
+      "lot_size": 2500
+    },
+    "COALINDIA": {
+      "name": "COAL INDIA LTD",
+      "lot_size": 1350
     },
     "CANBK": {
       "name": "CANARA BANK",
@@ -131,9 +115,65 @@
       "name": "DABUR INDIA LTD",
       "lot_size": 1250
     },
+    "COROMANDEL": {
+      "name": "COROMANDEL INTERNTL. LTD",
+      "lot_size": 300
+    },
     "DIVISLAB": {
       "name": "DIVI S LABORATORIES LTD",
       "lot_size": 100
+    },
+    "COCHINSHIP": {
+      "name": "COCHIN SHIPYARD LIMITED",
+      "lot_size": 400
+    },
+    "CUB": {
+      "name": "CITY UNION BANK LTD",
+      "lot_size": 2325
+    },
+    "DMART": {
+      "name": "AVENUE SUPERMARTS LIMITED",
+      "lot_size": 150
+    },
+    "COFORGE": {
+      "name": "COFORGE LIMITED",
+      "lot_size": 475
+    },
+    "COLPAL": {
+      "name": "COLGATE PALMOLIVE LTD.",
+      "lot_size": 275
+    },
+    "DRREDDY": {
+      "name": "DR. REDDY S LABORATORIES",
+      "lot_size": 625
+    },
+    "ETERNAL": {
+      "name": "ETERNAL LIMITED",
+      "lot_size": 2425
+    },
+    "CROMPTON": {
+      "name": "CROMPT GREA CON ELEC LTD",
+      "lot_size": 2150
+    },
+    "DATAPATTNS": {
+      "name": "DATA PATTERNS INDIA LTD",
+      "lot_size": 125
+    },
+    "AMBUJACEM": {
+      "name": "AMBUJA CEMENTS LTD",
+      "lot_size": 1200
+    },
+    "CUMMINSIND": {
+      "name": "CUMMINS INDIA LTD",
+      "lot_size": 100
+    },
+    "DELHIVERY": {
+      "name": "DELHIVERY LIMITED",
+      "lot_size": 2075
+    },
+    "GODREJPROP": {
+      "name": "GODREJ PROPERTIES LTD",
+      "lot_size": 325
     },
     "DIXON": {
       "name": "DIXON TECHNO (INDIA) LTD",
@@ -143,57 +183,53 @@
       "name": "DLF LIMITED",
       "lot_size": 950
     },
-    "CUMMINSIND": {
-      "name": "CUMMINS INDIA LTD",
-      "lot_size": 200
+    "HAL": {
+      "name": "HINDUSTAN AERONAUTICS LTD",
+      "lot_size": 150
+    },
+    "HCLTECH": {
+      "name": "HCL TECHNOLOGIES LTD",
+      "lot_size": 400
+    },
+    "360ONE": {
+      "name": "360 ONE WAM LIMITED",
+      "lot_size": 500
     },
     "FORTIS": {
       "name": "FORTIS HEALTHCARE LTD",
       "lot_size": 775
     },
-    "ANGELONE": {
-      "name": "ANGEL ONE LIMITED",
-      "lot_size": 2500
-    },
     "GLENMARK": {
       "name": "GLENMARK PHARMACEUTICALS",
       "lot_size": 375
     },
-    "HAVELLS": {
-      "name": "HAVELLS INDIA LIMITED",
+    "GODREJCP": {
+      "name": "GODREJ CONSUMER PRODUCTS",
       "lot_size": 500
     },
-    "ETERNAL": {
-      "name": "ETERNAL LIMITED",
-      "lot_size": 2425
-    },
-    "DRREDDY": {
-      "name": "DR. REDDY S LABORATORIES",
-      "lot_size": 625
-    },
-    "ASHOKLEY": {
-      "name": "ASHOK LEYLAND LTD",
-      "lot_size": 5000
-    },
-    "AUROPHARMA": {
-      "name": "AUROBINDO PHARMA LTD",
-      "lot_size": 550
+    "IEX": {
+      "name": "INDIAN ENERGY EXC LTD",
+      "lot_size": 4350
     },
     "INDHOTEL": {
       "name": "THE INDIAN HOTELS CO. LTD",
       "lot_size": 1000
     },
-    "BAJAJHLDNG": {
-      "name": "BAJAJ HOLDINGS & INVS LTD",
-      "lot_size": 75
-    },
     "INDUSINDBK": {
       "name": "INDUSIND BANK LIMITED",
       "lot_size": 700
     },
-    "ADANIENT": {
-      "name": "ADANI ENTERPRISES LIMITED",
-      "lot_size": 309
+    "INFY": {
+      "name": "INFOSYS LIMITED",
+      "lot_size": 400
+    },
+    "HEROMOTOCO": {
+      "name": "HERO MOTOCORP LIMITED",
+      "lot_size": 150
+    },
+    "BANKINDIA": {
+      "name": "BANK OF INDIA",
+      "lot_size": 5200
     },
     "GRASIM": {
       "name": "GRASIM INDUSTRIES LTD",
@@ -203,37 +239,33 @@
       "name": "JIO FIN SERVICES LTD",
       "lot_size": 2350
     },
-    "BDL": {
-      "name": "BHARAT DYNAMICS LIMITED",
-      "lot_size": 425
+    "HAVELLS": {
+      "name": "HAVELLS INDIA LIMITED",
+      "lot_size": 500
     },
-    "BIOCON": {
-      "name": "BIOCON LIMITED.",
-      "lot_size": 2500
-    },
-    "HINDALCO": {
-      "name": "HINDALCO  INDUSTRIES  LTD",
-      "lot_size": 700
+    "JSWSTEEL": {
+      "name": "JSW STEEL LIMITED",
+      "lot_size": 675
     },
     "HDFCAMC": {
       "name": "HDFC AMC LIMITED",
       "lot_size": 300
     },
-    "HEROMOTOCO": {
-      "name": "HERO MOTOCORP LIMITED",
-      "lot_size": 150
+    "JUBLFOOD": {
+      "name": "JUBILANT FOODWORKS LTD",
+      "lot_size": 1250
     },
-    "HINDUNILVR": {
-      "name": "HINDUSTAN UNILEVER LTD.",
-      "lot_size": 300
-    },
-    "KEI": {
-      "name": "KEI INDUSTRIES LTD.",
-      "lot_size": 175
+    "HINDALCO": {
+      "name": "HINDALCO  INDUSTRIES  LTD",
+      "lot_size": 700
     },
     "HYUNDAI": {
       "name": "HYUNDAI MOTOR INDIA LTD",
       "lot_size": 275
+    },
+    "ICICIBANK": {
+      "name": "ICICI BANK LTD.",
+      "lot_size": 700
     },
     "ICICIGI": {
       "name": "ICICI LOMBARD GIC LIMITED",
@@ -245,15 +277,11 @@
     },
     "LAURUSLABS": {
       "name": "LAURUS LABS LIMITED",
-      "lot_size": 850
+      "lot_size": 425
     },
-    "LICI": {
-      "name": "LIFE INSURA CORP OF INDIA",
-      "lot_size": 1400
-    },
-    "IEX": {
-      "name": "INDIAN ENERGY EXC LTD",
-      "lot_size": 4350
+    "LICHSGFIN": {
+      "name": "LIC HOUSING FINANCE LTD",
+      "lot_size": 1000
     },
     "INDIANB": {
       "name": "INDIAN BANK",
@@ -263,41 +291,49 @@
       "name": "LARSEN & TOUBRO LTD.",
       "lot_size": 175
     },
-    "INDIGO": {
-      "name": "INTERGLOBE AVIATION LTD",
+    "KAYNES": {
+      "name": "KAYNES TECHNOLOGY IND LTD",
       "lot_size": 150
     },
-    "CDSL": {
-      "name": "CENTRAL DEPO SER (I) LTD",
-      "lot_size": 475
+    "LTM": {
+      "name": "LTM LIMITED",
+      "lot_size": 150
+    },
+    "LUPIN": {
+      "name": "LUPIN LIMITED",
+      "lot_size": 425
+    },
+    "ADANIGREEN": {
+      "name": "ADANI GREEN ENERGY LTD",
+      "lot_size": 600
+    },
+    "INDUSTOWER": {
+      "name": "INDUS TOWERS LIMITED",
+      "lot_size": 1700
+    },
+    "ADANIPOWER": {
+      "name": "ADANI POWER LTD",
+      "lot_size": 3550
+    },
+    "BRITANNIA": {
+      "name": "BRITANNIA INDUSTRIES LTD",
+      "lot_size": 125
+    },
+    "MAHABANK": {
+      "name": "BANK OF MAHARASHTRA",
+      "lot_size": 6500
     },
     "INOXWIND": {
       "name": "INOX WIND LIMITED",
       "lot_size": 6400
     },
-    "JINDALSTEL": {
-      "name": "JINDAL STEEL LIMITED",
-      "lot_size": 625
+    "IRFC": {
+      "name": "INDIAN RAILWAY FIN CORP L",
+      "lot_size": 5425
     },
-    "MANKIND": {
-      "name": "MANKIND PHARMA LIMITED",
-      "lot_size": 250
-    },
-    "MARICO": {
-      "name": "MARICO LIMITED",
-      "lot_size": 1200
-    },
-    "MARUTI": {
-      "name": "MARUTI SUZUKI INDIA LTD.",
-      "lot_size": 50
-    },
-    "CGPOWER": {
-      "name": "CG POWER AND IND SOL LTD",
-      "lot_size": 850
-    },
-    "IOC": {
-      "name": "INDIAN OIL CORP LTD",
-      "lot_size": 4875
+    "ITC": {
+      "name": "ITC LTD",
+      "lot_size": 1725
     },
     "MAXHEALTH": {
       "name": "MAX HEALTHCARE INS LTD",
@@ -307,9 +343,9 @@
       "name": "AMBER ENTERPRISES (I) LTD",
       "lot_size": 100
     },
-    "JSWSTEEL": {
-      "name": "JSW STEEL LIMITED",
-      "lot_size": 675
+    "MAZDOCK": {
+      "name": "MAZAGON DOCK SHIPBUIL LTD",
+      "lot_size": 225
     },
     "MCX": {
       "name": "MULTI COMMODITY EXCHANGE",
@@ -319,89 +355,73 @@
       "name": "KALYAN JEWELLERS IND LTD",
       "lot_size": 1350
     },
-    "MPHASIS": {
-      "name": "MPHASIS LIMITED",
-      "lot_size": 275
+    "MOTILALOFS": {
+      "name": "MOTILAL OSWAL FIN LTD",
+      "lot_size": 775
     },
-    "NAUKRI": {
-      "name": "INFO EDGE (I) LTD",
-      "lot_size": 550
+    "NAVINFLUOR": {
+      "name": "NAVIN FLUORINE INT. LTD",
+      "lot_size": 75
     },
     "NESTLEIND": {
       "name": "NESTLE INDIA LIMITED",
       "lot_size": 500
     },
-    "LICHSGFIN": {
-      "name": "LIC HOUSING FINANCE LTD",
-      "lot_size": 1000
+    "NTPC": {
+      "name": "NTPC LTD",
+      "lot_size": 1500
     },
-    "DELHIVERY": {
-      "name": "DELHIVERY LIMITED",
-      "lot_size": 2075
+    "NYKAA": {
+      "name": "FSN E COMMERCE VENTURES",
+      "lot_size": 3125
     },
     "LTF": {
       "name": "L&T FINANCE LIMITED",
       "lot_size": 2250
     },
-    "KAYNES": {
-      "name": "KAYNES TECHNOLOGY IND LTD",
-      "lot_size": 150
+    "OBEROIRLTY": {
+      "name": "OBEROI REALTY LIMITED",
+      "lot_size": 350
     },
-    "DMART": {
-      "name": "AVENUE SUPERMARTS LIMITED",
-      "lot_size": 150
-    },
-    "OFSS": {
-      "name": "ORACLE FIN SERV SOFT LTD.",
-      "lot_size": 100
+    "MANKIND": {
+      "name": "MANKIND PHARMA LIMITED",
+      "lot_size": 250
     },
     "ONGC": {
       "name": "OIL AND NATURAL GAS CORP.",
       "lot_size": 2250
     },
-    "PERSISTENT": {
-      "name": "PERSISTENT SYSTEMS LTD",
-      "lot_size": 125
+    "ANGELONE": {
+      "name": "ANGEL ONE LIMITED",
+      "lot_size": 2500
+    },
+    "PAGEIND": {
+      "name": "PAGE INDUSTRIES LTD",
+      "lot_size": 20
+    },
+    "PETRONET": {
+      "name": "PETRONET LNG LIMITED",
+      "lot_size": 1900
     },
     "PGEL": {
       "name": "PG ELECTROPLAST LTD",
       "lot_size": 950
     },
+    "PIDILITIND": {
+      "name": "PIDILITE INDUSTRIES LTD",
+      "lot_size": 500
+    },
     "POWERGRID": {
       "name": "POWER GRID CORP. LTD.",
       "lot_size": 1900
     },
-    "MAZDOCK": {
-      "name": "MAZAGON DOCK SHIPBUIL LTD",
-      "lot_size": 225
-    },
-    "POWERINDIA": {
-      "name": "HITACHI ENERGY INDIA LTD",
-      "lot_size": 25
-    },
-    "PREMIERENE": {
-      "name": "PREMIER ENERGIES LIMITED",
-      "lot_size": 650
-    },
-    "CONCOR": {
-      "name": "CONTAINER CORP OF IND LTD",
-      "lot_size": 1250
-    },
-    "M&M": {
-      "name": "MAHINDRA & MAHINDRA LTD",
-      "lot_size": 200
+    "MFSL": {
+      "name": "MAX FINANCIAL SERV LTD",
+      "lot_size": 400
     },
     "RADICO": {
       "name": "RADICO KHAITAN LTD",
       "lot_size": 150
-    },
-    "MOTHERSON": {
-      "name": "SAMVRDHNA MTHRSN INTL LTD",
-      "lot_size": 6150
-    },
-    "RECLTD": {
-      "name": "REC LIMITED",
-      "lot_size": 1575
     },
     "RELIANCE": {
       "name": "RELIANCE INDUSTRIES LTD",
@@ -411,225 +431,189 @@
       "name": "NATIONAL ALUMINIUM CO LTD",
       "lot_size": 1875
     },
+    "NAUKRI": {
+      "name": "INFO EDGE (I) LTD",
+      "lot_size": 550
+    },
+    "ASHOKLEY": {
+      "name": "ASHOK LEYLAND LTD",
+      "lot_size": 5000
+    },
+    "CONCOR": {
+      "name": "CONTAINER CORP OF IND LTD",
+      "lot_size": 1250
+    },
     "ASTRAL": {
       "name": "ASTRAL LIMITED",
       "lot_size": 425
     },
-    "NBCC": {
-      "name": "NBCC (INDIA) LIMITED",
-      "lot_size": 6500
+    "SAIL": {
+      "name": "STEEL AUTHORITY OF INDIA",
+      "lot_size": 4700
     },
-    "NHPC": {
-      "name": "NHPC LTD",
-      "lot_size": 6950
+    "AUBANK": {
+      "name": "AU SMALL FINANCE BANK LTD",
+      "lot_size": 500
     },
-    "NMDC": {
-      "name": "NMDC LTD.",
-      "lot_size": 6750
+    "SHREECEM": {
+      "name": "SHREE CEMENT LIMITED",
+      "lot_size": 25
     },
-    "SHRIRAMFIN": {
-      "name": "SHRIRAM FINANCE LIMITED",
-      "lot_size": 825
+    "SONACOMS": {
+      "name": "SONA BLW PRECISION FRGS L",
+      "lot_size": 1225
     },
-    "NYKAA": {
-      "name": "FSN E COMMERCE VENTURES",
-      "lot_size": 3125
-    },
-    "SOLARINDS": {
-      "name": "SOLAR INDUSTRIES (I) LTD",
-      "lot_size": 50
+    "SUPREMEIND": {
+      "name": "SUPREME INDUSTRIES LTD",
+      "lot_size": 175
     },
     "OIL": {
       "name": "OIL INDIA LTD",
       "lot_size": 1400
     },
-    "PATANJALI": {
-      "name": "PATANJALI FOODS LIMITED",
-      "lot_size": 1075
+    "ASIANPAINT": {
+      "name": "ASIAN PAINTS LIMITED",
+      "lot_size": 250
     },
-    "SUNPHARMA": {
-      "name": "SUN PHARMACEUTICAL IND L",
-      "lot_size": 350
+    "TECHM": {
+      "name": "TECH MAHINDRA LIMITED",
+      "lot_size": 600
     },
-    "TCS": {
-      "name": "TATA CONSULTANCY SERV LT",
-      "lot_size": 225
-    },
-    "PAYTM": {
-      "name": "ONE 97 COMMUNICATIONS LTD",
-      "lot_size": 725
+    "SYRMA": {
+      "name": "SYRMA SGS TECHNOLOGY LTD",
+      "lot_size": 325
     },
     "TORNTPHARM": {
       "name": "TORRENT PHARMACEUTICALS L",
+      "lot_size": 125
+    },
+    "ULTRACEMCO": {
+      "name": "ULTRATECH CEMENT LIMITED",
+      "lot_size": 50
+    },
+    "UNIONBANK": {
+      "name": "UNION BANK OF INDIA",
+      "lot_size": 4425
+    },
+    "EICHERMOT": {
+      "name": "EICHER MOTORS LTD",
+      "lot_size": 100
+    },
+    "PERSISTENT": {
+      "name": "PERSISTENT SYSTEMS LTD",
       "lot_size": 125
     },
     "UNITDSPR": {
       "name": "UNITED SPIRITS LIMITED",
       "lot_size": 400
     },
-    "PETRONET": {
-      "name": "PETRONET LNG LIMITED",
-      "lot_size": 1900
-    },
-    "GMRAIRPORT": {
-      "name": "GMR AIRPORTS LIMITED",
-      "lot_size": 6975
-    },
-    "VBL": {
-      "name": "VARUN BEVERAGES LIMITED",
-      "lot_size": 1275
-    },
-    "PIIND": {
-      "name": "PI INDUSTRIES LTD",
-      "lot_size": 175
+    "AXISBANK": {
+      "name": "AXIS BANK LIMITED",
+      "lot_size": 625
     },
     "PNB": {
       "name": "PUNJAB NATIONAL BANK",
       "lot_size": 8000
     },
+    "TVSMOTOR": {
+      "name": "TVS MOTOR COMPANY  LTD",
+      "lot_size": 175
+    },
     "VOLTAS": {
       "name": "VOLTAS LTD",
       "lot_size": 375
-    },
-    "PHOENIXLTD": {
-      "name": "THE PHOENIX MILLS LTD",
-      "lot_size": 350
-    },
-    "PIDILITIND": {
-      "name": "PIDILITE INDUSTRIES LTD",
-      "lot_size": 500
-    },
-    "YESBANK": {
-      "name": "YES BANK LIMITED",
-      "lot_size": 31100
-    },
-    "ZYDUSLIFE": {
-      "name": "ZYDUS LIFESCIENCES LTD",
-      "lot_size": 900
-    },
-    "RVNL": {
-      "name": "RAIL VIKAS NIGAM LIMITED",
-      "lot_size": 1925
-    },
-    "FEDERALBNK": {
-      "name": "FEDERAL BANK LTD",
-      "lot_size": 2500
-    },
-    "GODREJPROP": {
-      "name": "GODREJ PROPERTIES LTD",
-      "lot_size": 325
-    },
-    "GAIL": {
-      "name": "GAIL (INDIA) LTD",
-      "lot_size": 3550
-    },
-    "RBLBANK": {
-      "name": "RBL BANK LIMITED",
-      "lot_size": 3175
-    },
-    "GODFRYPHLP": {
-      "name": "GODFREY PHILLIPS INDIA LT",
-      "lot_size": 275
-    },
-    "SONACOMS": {
-      "name": "SONA BLW PRECISION FRGS L",
-      "lot_size": 1225
-    },
-    "SRF": {
-      "name": "SRF LTD",
-      "lot_size": 200
-    },
-    "SUPREMEIND": {
-      "name": "SUPREME INDUSTRIES LTD",
-      "lot_size": 175
-    },
-    "HCLTECH": {
-      "name": "HCL TECHNOLOGIES LTD",
-      "lot_size": 400
-    },
-    "SWIGGY": {
-      "name": "SWIGGY LIMITED",
-      "lot_size": 1825
-    },
-    "TITAN": {
-      "name": "TITAN COMPANY LIMITED",
-      "lot_size": 175
-    },
-    "HINDPETRO": {
-      "name": "HINDUSTAN PETROLEUM CORP",
-      "lot_size": 2025
-    },
-    "UJJIVANSFB": {
-      "name": "UJJIVAN SMALL FINANC BANK",
-      "lot_size": 8000
-    },
-    "HINDZINC": {
-      "name": "HINDUSTAN ZINC LIMITED",
-      "lot_size": 1225
-    },
-    "ICICILIFE": {
-      "name": "ICICI LIFE INSURANCE LTD",
-      "lot_size": 925
-    },
-    "VMM": {
-      "name": "VISHAL MEGA MART LIMITED",
-      "lot_size": 4850
-    },
-    "IRFC": {
-      "name": "INDIAN RAILWAY FIN CORP L",
-      "lot_size": 5425
-    },
-    "HDFCLIFE": {
-      "name": "HDFC LIFE INS CO LTD",
-      "lot_size": 1100
     },
     "WAAREEENER": {
       "name": "WAAREE ENERGIES LIMITED",
       "lot_size": 175
     },
-    "BLUESTARCO": {
-      "name": "BLUE STAR LIMITED",
-      "lot_size": 325
+    "WIPRO": {
+      "name": "WIPRO LTD",
+      "lot_size": 3000
     },
-    "BOSCHLTD": {
-      "name": "BOSCH LIMITED",
+    "UJJIVANSFB": {
+      "name": "UJJIVAN SMALL FINANC BANK",
+      "lot_size": 8000
+    },
+    "ZYDUSLIFE": {
+      "name": "ZYDUS LIFESCIENCES LTD",
+      "lot_size": 450
+    },
+    "FEDERALBNK": {
+      "name": "FEDERAL BANK LTD",
+      "lot_size": 2500
+    },
+    "SBILIFE": {
+      "name": "SBI LIFE INSURANCE CO LTD",
+      "lot_size": 375
+    },
+    "SOLARINDS": {
+      "name": "SOLAR INDUSTRIES (I) LTD",
       "lot_size": 25
     },
-    "LODHA": {
-      "name": "LODHA DEVELOPERS LIMITED",
-      "lot_size": 625
+    "SUNPHARMA": {
+      "name": "SUN PHARMACEUTICAL IND L",
+      "lot_size": 350
     },
-    "LUPIN": {
-      "name": "LUPIN LIMITED",
+    "SUZLON": {
+      "name": "SUZLON ENERGY LIMITED",
+      "lot_size": 12700
+    },
+    "TATASTEEL": {
+      "name": "TATA STEEL LIMITED",
+      "lot_size": 2750
+    },
+    "TITAN": {
+      "name": "TITAN COMPANY LIMITED",
+      "lot_size": 175
+    },
+    "HDFCLIFE": {
+      "name": "HDFC LIFE INS CO LTD",
+      "lot_size": 1100
+    },
+    "BDL": {
+      "name": "BHARAT DYNAMICS LIMITED",
       "lot_size": 425
+    },
+    "HINDUNILVR": {
+      "name": "HINDUSTAN UNILEVER LTD.",
+      "lot_size": 300
+    },
+    "HINDZINC": {
+      "name": "HINDUSTAN ZINC LIMITED",
+      "lot_size": 1225
     },
     "CAMS": {
       "name": "COMPUTER AGE MNGT SER LTD",
       "lot_size": 825
     },
+    "VMM": {
+      "name": "VISHAL MEGA MART LIMITED",
+      "lot_size": 4850
+    },
+    "CGPOWER": {
+      "name": "CG POWER AND IND SOL LTD",
+      "lot_size": 850
+    },
     "KPITTECH": {
       "name": "KPIT TECHNOLOGIES LIMITED",
       "lot_size": 775
     },
-    "MAHABANK": {
-      "name": "BANK OF MAHARASHTRA",
-      "lot_size": 6500
+    "CHOLAFIN": {
+      "name": "CHOLAMANDALAM IN & FIN CO",
+      "lot_size": 625
+    },
+    "LICI": {
+      "name": "LIFE INSURA CORP OF INDIA",
+      "lot_size": 1400
     },
     "MANAPPURAM": {
       "name": "MANAPPURAM FINANCE LTD",
       "lot_size": 3000
     },
-    "COALINDIA": {
-      "name": "COAL INDIA LTD",
-      "lot_size": 1350
-    },
-    "COCHINSHIP": {
-      "name": "COCHIN SHIPYARD LIMITED",
-      "lot_size": 400
-    },
-    "MFSL": {
-      "name": "MAX FINANCIAL SERV LTD",
-      "lot_size": 400
+    "MARUTI": {
+      "name": "MARUTI SUZUKI INDIA LTD.",
+      "lot_size": 50
     },
     "MUTHOOTFIN": {
       "name": "MUTHOOT FINANCE LIMITED",
@@ -639,29 +623,37 @@
       "name": "NIPPON L I A M LTD",
       "lot_size": 625
     },
-    "OBEROIRLTY": {
-      "name": "OBEROI REALTY LIMITED",
-      "lot_size": 350
+    "GMRAIRPORT": {
+      "name": "GMR AIRPORTS LIMITED",
+      "lot_size": 6975
     },
-    "NTPC": {
-      "name": "NTPC LTD",
-      "lot_size": 1500
+    "GODFRYPHLP": {
+      "name": "GODFREY PHILLIPS INDIA LT",
+      "lot_size": 275
     },
-    "PFC": {
-      "name": "POWER FIN CORP LTD.",
-      "lot_size": 1300
+    "NMDC": {
+      "name": "NMDC LTD.",
+      "lot_size": 6750
     },
-    "PNBHOUSING": {
-      "name": "PNB HOUSING FIN LTD.",
+    "PAYTM": {
+      "name": "ONE 97 COMMUNICATIONS LTD",
+      "lot_size": 725
+    },
+    "HDFCBANK": {
+      "name": "HDFC BANK LTD",
       "lot_size": 650
     },
-    "EICHERMOT": {
-      "name": "EICHER MOTORS LTD",
-      "lot_size": 100
+    "POWERINDIA": {
+      "name": "HITACHI ENERGY INDIA LTD",
+      "lot_size": 25
     },
-    "ENRIN": {
-      "name": "SIEMENS ENERGY INDIA LTD",
-      "lot_size": 175
+    "HINDPETRO": {
+      "name": "HINDUSTAN PETROLEUM CORP",
+      "lot_size": 2025
+    },
+    "RBLBANK": {
+      "name": "RBL BANK LIMITED",
+      "lot_size": 3175
     },
     "SBICARD": {
       "name": "SBI CARDS & PAY SER LTD",
@@ -671,153 +663,165 @@
       "name": "STATE BANK OF INDIA",
       "lot_size": 750
     },
-    "SHREECEM": {
-      "name": "SHREE CEMENT LIMITED",
-      "lot_size": 25
-    },
-    "TATACONSUM": {
-      "name": "TATA CONSUMER PRODUCT LTD",
-      "lot_size": 550
-    },
-    "GODREJCP": {
-      "name": "GODREJ CONSUMER PRODUCTS",
-      "lot_size": 500
-    },
-    "POLYCAB": {
-      "name": "POLYCAB INDIA LIMITED",
-      "lot_size": 125
-    },
-    "TATAELXSI": {
-      "name": "TATA ELXSI LIMITED",
-      "lot_size": 125
-    },
-    "TECHM": {
-      "name": "TECH MAHINDRA LIMITED",
-      "lot_size": 600
-    },
-    "GVT&D": {
-      "name": "GE VERNOVA T&D INDIA LTD",
-      "lot_size": 125
-    },
-    "HAL": {
-      "name": "HINDUSTAN AERONAUTICS LTD",
-      "lot_size": 150
-    },
-    "PRESTIGE": {
-      "name": "PRESTIGE ESTATE LTD",
-      "lot_size": 450
-    },
-    "TVSMOTOR": {
-      "name": "TVS MOTOR COMPANY  LTD",
-      "lot_size": 175
-    },
-    "UNIONBANK": {
-      "name": "UNION BANK OF INDIA",
-      "lot_size": 4425
-    },
-    "HDFCBANK": {
-      "name": "HDFC BANK LTD",
-      "lot_size": 650
-    },
-    "SBILIFE": {
-      "name": "SBI LIFE INSURANCE CO LTD",
-      "lot_size": 375
-    },
-    "ICICIBANK": {
-      "name": "ICICI BANK LTD.",
-      "lot_size": 700
-    },
-    "IDFCFIRSTB": {
-      "name": "IDFC FIRST BANK LIMITED",
-      "lot_size": 9275
-    },
-    "TIINDIA": {
-      "name": "TUBE INVEST OF INDIA LTD",
-      "lot_size": 200
-    },
-    "INDUSTOWER": {
-      "name": "INDUS TOWERS LIMITED",
-      "lot_size": 1700
-    },
-    "INFY": {
-      "name": "INFOSYS LIMITED",
-      "lot_size": 400
-    },
-    "ITC": {
-      "name": "ITC LTD",
-      "lot_size": 1725
-    },
-    "JSWENERGY": {
-      "name": "JSW ENERGY LIMITED",
-      "lot_size": 1075
-    },
-    "JUBLFOOD": {
-      "name": "JUBILANT FOODWORKS LTD",
-      "lot_size": 1250
-    },
-    "KFINTECH": {
-      "name": "KFIN TECHNOLOGIES LIMITED",
-      "lot_size": 575
-    },
-    "PAGEIND": {
-      "name": "PAGE INDUSTRIES LTD",
-      "lot_size": 20
-    },
-    "POLICYBZR": {
-      "name": "PB FINTECH LIMITED",
-      "lot_size": 350
-    },
-    "ULTRACEMCO": {
-      "name": "ULTRATECH CEMENT LIMITED",
-      "lot_size": 50
-    },
-    "SAGILITY": {
-      "name": "SAGILITY LIMITED",
-      "lot_size": 12000
-    },
-    "SAIL": {
-      "name": "STEEL AUTHORITY OF INDIA",
-      "lot_size": 4700
-    },
-    "SIEMENS": {
-      "name": "SIEMENS LTD",
-      "lot_size": 175
-    },
-    "SUZLON": {
-      "name": "SUZLON ENERGY LIMITED",
-      "lot_size": 12700
-    },
-    "UPL": {
-      "name": "UPL LIMITED",
-      "lot_size": 1355
+    "SWIGGY": {
+      "name": "SWIGGY LIMITED",
+      "lot_size": 1825
     },
     "TATAPOWER": {
       "name": "TATA POWER CO LTD",
       "lot_size": 1450
     },
-    "TATASTEEL": {
-      "name": "TATA STEEL LIMITED",
-      "lot_size": 2750
+    "TCS": {
+      "name": "TATA CONSULTANCY SERV LT",
+      "lot_size": 225
     },
-    "360ONE": {
-      "name": "360 ONE WAM LIMITED",
-      "lot_size": 500
+    "IREDA": {
+      "name": "INDIAN RENEWABLE ENERGY",
+      "lot_size": 4525
     },
-    "ADANIGREEN": {
-      "name": "ADANI GREEN ENERGY LTD",
-      "lot_size": 600
+    "JINDALSTEL": {
+      "name": "JINDAL STEEL LIMITED",
+      "lot_size": 625
     },
-    "UNOMINDA": {
-      "name": "UNO MINDA LIMITED",
-      "lot_size": 550
+    "JSWENERGY": {
+      "name": "JSW ENERGY LIMITED",
+      "lot_size": 1075
+    },
+    "UPL": {
+      "name": "UPL LIMITED",
+      "lot_size": 1355
+    },
+    "KEI": {
+      "name": "KEI INDUSTRIES LTD.",
+      "lot_size": 175
     },
     "VEDL": {
       "name": "VEDANTA LIMITED",
       "lot_size": 1150
     },
-    "WIPRO": {
-      "name": "WIPRO LTD",
-      "lot_size": 3000
+    "LODHA": {
+      "name": "LODHA DEVELOPERS LIMITED",
+      "lot_size": 625
+    },
+    "IDFCFIRSTB": {
+      "name": "IDFC FIRST BANK LIMITED",
+      "lot_size": 9275
+    },
+    "INDIGO": {
+      "name": "INTERGLOBE AVIATION LTD",
+      "lot_size": 150
+    },
+    "MARICO": {
+      "name": "MARICO LIMITED",
+      "lot_size": 1200
+    },
+    "IOC": {
+      "name": "INDIAN OIL CORP LTD",
+      "lot_size": 4875
+    },
+    "MPHASIS": {
+      "name": "MPHASIS LIMITED",
+      "lot_size": 275
+    },
+    "NBCC": {
+      "name": "NBCC (INDIA) LIMITED",
+      "lot_size": 6500
+    },
+    "NHPC": {
+      "name": "NHPC LTD",
+      "lot_size": 6950
+    },
+    "ICICILIFE": {
+      "name": "ICICI LIFE INSURANCE LTD",
+      "lot_size": 925
+    },
+    "M&M": {
+      "name": "MAHINDRA & MAHINDRA LTD",
+      "lot_size": 200
+    },
+    "PATANJALI": {
+      "name": "PATANJALI FOODS LIMITED",
+      "lot_size": 1075
+    },
+    "PFC": {
+      "name": "POWER FIN CORP LTD.",
+      "lot_size": 1300
+    },
+    "PHOENIXLTD": {
+      "name": "THE PHOENIX MILLS LTD",
+      "lot_size": 350
+    },
+    "MOTHERSON": {
+      "name": "SAMVRDHNA MTHRSN INTL LTD",
+      "lot_size": 6150
+    },
+    "PIIND": {
+      "name": "PI INDUSTRIES LTD",
+      "lot_size": 175
+    },
+    "OFSS": {
+      "name": "ORACLE FIN SERV SOFT LTD.",
+      "lot_size": 50
+    },
+    "POLICYBZR": {
+      "name": "PB FINTECH LIMITED",
+      "lot_size": 350
+    },
+    "POLYCAB": {
+      "name": "POLYCAB INDIA LIMITED",
+      "lot_size": 125
+    },
+    "PREMIERENE": {
+      "name": "PREMIER ENERGIES LIMITED",
+      "lot_size": 650
+    },
+    "PRESTIGE": {
+      "name": "PRESTIGE ESTATE LTD",
+      "lot_size": 450
+    },
+    "RECLTD": {
+      "name": "REC LIMITED",
+      "lot_size": 1575
+    },
+    "SAGILITY": {
+      "name": "SAGILITY LIMITED",
+      "lot_size": 12000
+    },
+    "TATACONSUM": {
+      "name": "TATA CONSUMER PRODUCT LTD",
+      "lot_size": 550
+    },
+    "TATAELXSI": {
+      "name": "TATA ELXSI LIMITED",
+      "lot_size": 125
+    },
+    "RVNL": {
+      "name": "RAIL VIKAS NIGAM LIMITED",
+      "lot_size": 1925
+    },
+    "TIINDIA": {
+      "name": "TUBE INVEST OF INDIA LTD",
+      "lot_size": 200
+    },
+    "TMPV": {
+      "name": "TATA MOTORS PASS VEH LTD",
+      "lot_size": 1600
+    },
+    "TRENT": {
+      "name": "TRENT LTD",
+      "lot_size": 225
+    },
+    "SHRIRAMFIN": {
+      "name": "SHRIRAM FINANCE LIMITED",
+      "lot_size": 825
+    },
+    "VBL": {
+      "name": "VARUN BEVERAGES LIMITED",
+      "lot_size": 1275
+    },
+    "UNOMINDA": {
+      "name": "UNO MINDA LIMITED",
+      "lot_size": 550
     },
     "BHEL": {
       "name": "BHEL",
@@ -831,29 +835,45 @@
       "name": "FORCE MOTORS LIMITED",
       "lot_size": 25
     },
-    "IREDA": {
-      "name": "INDIAN RENEWABLE ENERGY",
-      "lot_size": 4525
+    "GAIL": {
+      "name": "GAIL (INDIA) LTD",
+      "lot_size": 3550
     },
-    "TMPV": {
-      "name": "TATA MOTORS PASS VEH LTD",
-      "lot_size": 1600
+    "KFINTECH": {
+      "name": "KFIN TECHNOLOGIES LIMITED",
+      "lot_size": 575
+    },
+    "KARURVYSYA": {
+      "name": "KARUR VYSYA BANK LTD",
+      "lot_size": 1550
+    },
+    "SRF": {
+      "name": "SRF LTD",
+      "lot_size": 200
+    },
+    "PNBHOUSING": {
+      "name": "PNB HOUSING FIN LTD.",
+      "lot_size": 650
+    },
+    "SIEMENS": {
+      "name": "SIEMENS LTD",
+      "lot_size": 175
+    },
+    "YESBANK": {
+      "name": "YES BANK LIMITED",
+      "lot_size": 31100
+    },
+    "ENRIN": {
+      "name": "SIEMENS ENERGY INDIA LTD",
+      "lot_size": 175
+    },
+    "GVT&D": {
+      "name": "GE VERNOVA T&D INDIA LTD",
+      "lot_size": 125
     },
     "IDEA": {
       "name": "VODAFONE IDEA LIMITED",
       "lot_size": 71475
-    },
-    "LTM": {
-      "name": "LTM LIMITED",
-      "lot_size": 150
-    },
-    "MOTILALOFS": {
-      "name": "MOTILAL OSWAL FIN LTD",
-      "lot_size": 775
-    },
-    "TRENT": {
-      "name": "TRENT LTD",
-      "lot_size": 225
     }
   }
 }

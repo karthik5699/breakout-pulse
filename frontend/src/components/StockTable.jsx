@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { ShieldCheck, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ShieldCheck, Sparkles, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 export default function StockTable({
   stocks,
@@ -278,6 +278,12 @@ export default function StockTable({
                           )}
                           {s.passes_trend_check && (
                             <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A] dark:text-[#22C55E] inline" title="Passes Stage 2 Trend Check" />
+                          )}
+                          {s.is_newly_added && (
+                            <Sparkles
+                              className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20 inline shrink-0"
+                              title="New Entry: Newly qualified for Volume Confirmed + Stage 2"
+                            />
                           )}
                         </div>
                         <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-[180px] font-normal mt-0.5">

@@ -237,6 +237,11 @@ def get_universe_stats():
     total_cached = len(results) or len(data_engine.get_all_cached_symbols())
     latest_date = data_engine.get_latest_data_date() or scan_state.get("latest_data_date", "2026-08-25")
 
+    vc_stage2_symbols = [
+        x.symbol for x in results
+        if x.is_volume_confirmed and x.passes_trend_check and (_is_ath(x) or _is_near_52w(x) or _is_recent_listing(x))
+    ]
+
     return UniverseStats(
         total_stocks=universe_store.total_count(),
         cached_stocks=total_cached,
@@ -249,7 +254,8 @@ def get_universe_stats():
         last_scanned=scan_state.get("last_scanned"),
         latest_data_date=latest_date,
         smallmid_trend=sm_trend,
-        nifty50_trend=n50_trend
+        nifty50_trend=n50_trend,
+        vc_stage2_symbols=vc_stage2_symbols
     )
 
 

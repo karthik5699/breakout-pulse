@@ -1,7 +1,7 @@
 import React from 'react'
 import { Crown, Target, Flame, Sparkles, Calendar } from 'lucide-react'
 
-export default function MarketBanner({ stats, activeTab, setActiveTab }) {
+export default function MarketBanner({ stats, activeTab, setActiveTab, newlyAddedCount = 0 }) {
   if (!stats) return null
 
   const cards = [
@@ -101,6 +101,13 @@ export default function MarketBanner({ stats, activeTab, setActiveTab }) {
             <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
             <span><strong className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">{stats.confirmed_volume_count || 0}</strong> Volume Confirmed Setups</span>
           </div>
+
+          {newlyAddedCount > 0 && (
+            <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md text-[11px]">
+              <Sparkles className="w-3 h-3 fill-amber-500/20" />
+              <span><strong className="font-semibold tabular-nums">{newlyAddedCount}</strong> New Joined</span>
+            </div>
+          )}
         </div>
 
         <div className="text-[#6B7280] dark:text-[#9CA3AF] font-normal">

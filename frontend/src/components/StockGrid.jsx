@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, Sparkles } from 'lucide-react'
 
 export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loading }) {
   const [focusedIndex, setFocusedIndex] = useState(0)
@@ -180,8 +180,17 @@ export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loadi
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-semibold text-base text-[#111827] dark:text-[#F9FAFB]">
+                  <span className="font-semibold text-base text-[#111827] dark:text-[#F9FAFB] flex items-center gap-1.5">
                     {s.symbol}
+                    {s.passes_trend_check && (
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#9CA3AF] inline shrink-0" title="Passes Stage 2 Trend Check" />
+                    )}
+                    {s.is_newly_added && (
+                      <Sparkles
+                        className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20 inline shrink-0"
+                        title="New Entry: Newly qualified for Volume Confirmed + Stage 2"
+                      />
+                    )}
                   </span>
                   {s.is_fno && (
                     <span

@@ -2,8 +2,16 @@ import sqlite3
 import json
 import os
 import math
+import sys
 from typing import Optional
 from datetime import datetime
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+import pandas as pd
+from backend.app.screener_engine import screener_engine
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DB_PATH = os.path.join(DATA_DIR, "market_data.db")
@@ -54,7 +62,32 @@ def export_cache(as_of_date: Optional[str] = None):
     symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
     print(f"Exporting cache for {len(symbols)} symbols from SQLite as of {as_of_date or 'latest'}...")
 
-    results = []
+    def load_bench_df(bench_sym):
+        if as_of_date:
+            cursor.execute(
+                "SELECT date, close FROM daily_candles WHERE symbol = ? AND date <= ? ORDER BY date ASC",
+                (bench_sym, as_of_date)
+            )
+        else:
+            cursor.execute(
+                "SELECT date, close FROM daily_candles WHERE symbol = ? ORDER BY date ASC",
+                (bench_sym,)
+            )
+        b_rows = cursor.fetchall()
+        if b_rows:
+            return pd.DataFrame(b_rows, columns=["date", "close"])
+        return None
+
+    sm_bench = load_bench_df("NIFTYSMLCAP250")
+    if sm_bench is None:
+        sm_bench = load_bench_df("NIFTYSMLCAP250.NS")
+    if sm_bench is None:
+        sm_bench = load_bench_df("^NSEI")
+
+    n50_bench = load_bench_df("^NSEI")
+
+    stock_items = {}
+    stock_dfs = {}
     latest_date_overall = as_of_date or "2026-08-25"
 
     for sym in symbols:
@@ -183,8 +216,8 @@ def export_cache(as_of_date: Optional[str] = None):
             "high_ath": round(high_ath, 2),
             "dist_to_52w_high_pct": dist_to_52w,
             "dist_to_ath_pct": dist_to_ath,
-            "rs_rating_smallmid": 75,
-            "rs_rating_nifty50": 70,
+            "rs_rating_smallmid": 50,
+            "rs_rating_nifty50": 50,
             "turnover_cr": turnover_cr,
             "active_days_20d": active_days,
             "trading_days": n_bars,
@@ -196,9 +229,20 @@ def export_cache(as_of_date: Optional[str] = None):
             "is_fno": universe_store.is_fno(sym),
             "fno_lot_size": universe_store.get_fno_lot_size(sym)
         }
-        results.append(item)
+        stock_dfs[sym] = pd.DataFrame({"close": closes})
+        stock_items[sym] = item
 
     conn.close()
+
+    print(f"Computing RS ratings for {len(stock_dfs)} stocks against benchmarks...")
+    rs_ratings = screener_engine.compute_rs_ratings(stock_dfs, sm_bench, n50_bench)
+
+    results = []
+    for sym, item in stock_items.items():
+        rs_sm, rs_n50 = rs_ratings.get(sym, (50, 50))
+        item["rs_rating_smallmid"] = rs_sm
+        item["rs_rating_nifty50"] = rs_n50
+        results.append(item)
 
     if len(results) < 1500:
         print(f"Skipping cache overwrite: only {len(results)} stocks computed from SQLite (insufficient database history for full universe). Existing cache preserved.")

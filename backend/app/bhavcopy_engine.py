@@ -117,7 +117,7 @@ class BhavcopyEngine:
                 
                 turnover_raw = cleaned.get("TURNOVER_LACS") or cleaned.get("TOTTRDVAL") or "0"
                 turnover_val = float(turnover_raw)
-                if "LACS" in (cleaned.get("TURNOVER_LACS") and "TURNOVER_LACS" or ""):
+                if cleaned.get("TURNOVER_LACS"):
                     turnover_val = turnover_val * 100000.0
 
                 stocks.append({

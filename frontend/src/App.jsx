@@ -29,6 +29,7 @@ export default function App() {
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false)
   const [scanStatus, setScanStatus] = useState(null)
   const [toast, setToast] = useState(null)
+  const [newlyAddedSymbols, setNewlyAddedSymbols] = useState(new Set())
 
   const wasScanningRef = useRef(false)
   const stocksAbortRef = useRef(null)
@@ -78,6 +79,28 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         setStats(data)
+
+        if (data.vc_stage2_symbols && Array.isArray(data.vc_stage2_symbols)) {
+          const currentSymbols = data.vc_stage2_symbols
+          const storedStr = localStorage.getItem('bp_watched_vc_stage2_symbols')
+
+          if (storedStr) {
+            try {
+              const prevList = JSON.parse(storedStr)
+              const prevSet = new Set(prevList)
+              // Identify symbols currently in Volume Confirmed + Stage 2 that weren't in previously watched list
+              const newEntries = currentSymbols.filter(sym => !prevSet.has(sym))
+              setNewlyAddedSymbols(new Set(newEntries))
+            } catch (e) {
+              console.error('Failed to parse stored VC+Stage2 symbols', e)
+              localStorage.setItem('bp_watched_vc_stage2_symbols', JSON.stringify(currentSymbols))
+            }
+          } else {
+            // First visit: establish baseline so future additions stand out
+            localStorage.setItem('bp_watched_vc_stage2_symbols', JSON.stringify(currentSymbols))
+            setNewlyAddedSymbols(new Set())
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch universe stats:', err)
@@ -156,6 +179,9 @@ export default function App() {
         type: 'info',
         message: 'Checking official NSE servers for latest market data...',
       })
+      if (stats?.vc_stage2_symbols) {
+        localStorage.setItem('bp_watched_vc_stage2_symbols', JSON.stringify(stats.vc_stage2_symbols))
+      }
       const res = await fetch('/api/scan', { method: 'POST' })
       const data = await res.json()
 
@@ -193,6 +219,16 @@ export default function App() {
       setScanStatus({ is_scanning: false })
     }
   }
+
+  // Sorted list annotated with "newly joined" flags (shared by Table, Grid, and ChartModal)
+  const displayedStocks = useMemo(
+    () =>
+      sortedStocks.map((s) => ({
+        ...s,
+        is_newly_added: newlyAddedSymbols.has(s.symbol)
+      })),
+    [sortedStocks, newlyAddedSymbols]
+  )
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-[#0B0F17] text-[#111827] dark:text-[#F9FAFB] selection:bg-gray-200 selection:text-black dark:selection:bg-gray-800 dark:selection:text-white">
@@ -241,7 +277,12 @@ export default function App() {
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full">
         {/* Market Overview & Distribution Cards */}
-        <MarketBanner stats={stats} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <MarketBanner
+          stats={stats}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          newlyAddedCount={newlyAddedSymbols.size}
+        />
 
         {/* Screener Tabs & Controls */}
         <ScreenerTabs
@@ -255,13 +296,13 @@ export default function App() {
           setFnoOnly={setFnoOnly}
           viewMode={viewMode}
           setViewMode={setViewMode}
-          totalResults={sortedStocks.length}
+          totalResults={displayedStocks.length}
         />
 
         {/* Results List (Table or Grid) */}
         {viewMode === 'table' ? (
           <StockTable
-            stocks={sortedStocks}
+            stocks={displayedStocks}
             onSelectStock={(sym) => setSelectedStock(sym)}
             selectedSymbol={selectedStock}
             loading={loading}
@@ -271,7 +312,7 @@ export default function App() {
           />
         ) : (
           <StockGrid
-            stocks={sortedStocks}
+            stocks={displayedStocks}
             onSelectStock={(sym) => setSelectedStock(sym)}
             selectedSymbol={selectedStock}
             loading={loading}
@@ -292,7 +333,7 @@ export default function App() {
       {selectedStock && (
         <ChartModal
           symbol={selectedStock}
-          stocks={sortedStocks}
+          stocks={displayedStocks}
           onSelectStock={(sym) => setSelectedStock(sym)}
           onClose={() => setSelectedStock(null)}
           theme={theme}

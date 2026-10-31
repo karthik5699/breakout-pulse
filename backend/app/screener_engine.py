@@ -102,13 +102,15 @@ class ScreenerEngine:
             valid = [v for v in raw_map.values() if v > -900]
             if not valid:
                 return {k: 50 for k in raw_map}
-            s = pd.Series(valid)
+            s_sorted = np.sort(valid)
+            n_valid = len(s_sorted)
             res = {}
             for k, val in raw_map.items():
                 if val <= -900:
                     res[k] = 1
                 else:
-                    pct = int(math.ceil((s < val).mean() * 99))
+                    mean_less = np.searchsorted(s_sorted, val, side='left') / n_valid
+                    pct = int(math.ceil(mean_less * 99))
                     res[k] = max(1, min(99, pct))
             return res
 
