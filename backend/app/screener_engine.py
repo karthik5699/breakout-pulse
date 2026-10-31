@@ -32,9 +32,11 @@ class ScreenerEngine:
         l = df["low"]
         v = df["volume"]
 
-        # Moving Averages
-        df["sma50"] = c.rolling(window=50, min_periods=1).mean().fillna(c)
-        df["sma200"] = c.rolling(window=200, min_periods=1).mean().fillna(c)
+        # Moving Averages (require full window so short-history stocks don't get fake MAs)
+        df["sma20"] = c.rolling(window=20, min_periods=20).mean()
+        df["sma50"] = c.rolling(window=50, min_periods=50).mean()
+        df["sma100"] = c.rolling(window=100, min_periods=100).mean()
+        df["sma200"] = c.rolling(window=200, min_periods=200).mean()
         df["vol_sma50"] = v.rolling(window=50, min_periods=1).mean().fillna(v)
         df["vol_sma20"] = v.rolling(window=20, min_periods=1).mean().fillna(v)
 
@@ -122,6 +124,370 @@ class ScreenerEngine:
             ratings[sym] = (pct_sm.get(sym, 50), pct_n50.get(sym, 50))
         return ratings
 
+    @staticmethod
+    def compute_wilder_oscillators(
+        highs: Any,
+        lows: Any,
+        closes: Any,
+        period: int = 14
+    ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+        """
+        Computes Wilder's RSI(14), Wilder's ADX(14), and ATR(14)% = (ATR14 / Close * 100)
+        using up to the last 260 daily bars.
+        """
+        n = len(closes)
+        if n < period + 1:
+            return None, None, None
+
+        # Slice to recent 260 bars for fast Wilder smoothing convergence
+        h = np.asarray(highs[-260:], dtype=np.float64)
+        l = np.asarray(lows[-260:], dtype=np.float64)
+        c = np.asarray(closes[-260:], dtype=np.float64)
+
+        # 1. RSI(14) via Wilder smoothing
+        delta = np.diff(c)
+        gains = np.where(delta > 0, delta, 0.0)
+        losses = np.where(delta < 0, -delta, 0.0)
+
+        avg_gain = float(np.mean(gains[:period]))
+        avg_loss = float(np.mean(losses[:period]))
+        for i in range(period, len(delta)):
+            avg_gain = (avg_gain * (period - 1) + float(gains[i])) / period
+            avg_loss = (avg_loss * (period - 1) + float(losses[i])) / period
+
+        if avg_loss == 0.0:
+            rsi = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi = 100.0 - (100.0 / (1.0 + rs))
+
+        # 2. True Range, +DM, -DM for ATR(14) & ADX(14)
+        up_move = h[1:] - h[:-1]
+        down_move = l[:-1] - l[1:]
+
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        tr1 = h[1:] - l[1:]
+        tr2 = np.abs(h[1:] - c[:-1])
+        tr3 = np.abs(l[1:] - c[:-1])
+        tr = np.maximum(tr1, np.maximum(tr2, tr3))
+
+        # ATR(14) via Wilder smoothing
+        atr = float(np.mean(tr[:period]))
+        for i in range(period, len(tr)):
+            atr = (atr * (period - 1) + float(tr[i])) / period
+        atr_pct = (atr / float(c[-1]) * 100.0) if c[-1] > 0 else 0.0
+
+        # ADX(14)
+        if len(tr) < 2 * period:
+            return round(rsi, 2), None, round(atr_pct, 4)
+
+        tr_smooth = float(np.sum(tr[:period]))
+        plus_dm_smooth = float(np.sum(plus_dm[:period]))
+        minus_dm_smooth = float(np.sum(minus_dm[:period]))
+
+        dx_list = []
+        for i in range(period, len(tr)):
+            if i > period:
+                tr_smooth = tr_smooth - (tr_smooth / period) + float(tr[i])
+                plus_dm_smooth = plus_dm_smooth - (plus_dm_smooth / period) + float(plus_dm[i])
+                minus_dm_smooth = minus_dm_smooth - (minus_dm_smooth / period) + float(minus_dm[i])
+
+            if tr_smooth > 0:
+                p_di = 100.0 * (plus_dm_smooth / tr_smooth)
+                m_di = 100.0 * (minus_dm_smooth / tr_smooth)
+            else:
+                p_di, m_di = 0.0, 0.0
+
+            denom = p_di + m_di
+            dx = 100.0 * abs(p_di - m_di) / denom if denom > 0 else 0.0
+            dx_list.append(dx)
+
+        if len(dx_list) < period:
+            adx = float(np.mean(dx_list)) if dx_list else 0.0
+        else:
+            adx = float(np.mean(dx_list[:period]))
+            for i in range(period, len(dx_list)):
+                adx = (adx * (period - 1) + dx_list[i]) / period
+
+        # Ensure directional trend is bullish (+DI > -DI); otherwise ADX reflects bearish trend strength
+        if p_di <= m_di:
+            adx = 0.0
+
+        return round(rsi, 2), round(adx, 2), round(atr_pct, 4)
+
+    @staticmethod
+    def compute_roc_metrics(closes: Any) -> Tuple[float, float, float]:
+        """Computes 21-day, 63-day, and 126-day Rate of Change (ROC %)."""
+        n = len(closes)
+        if n == 0:
+            return 0.0, 0.0, 0.0
+        c_last = float(closes[-1])
+        c_21 = float(closes[max(0, n - 1 - 21)])
+        c_63 = float(closes[max(0, n - 1 - 63)])
+        c_126 = float(closes[max(0, n - 1 - 126)])
+        roc21 = round(((c_last - c_21) / c_21) * 100.0, 2) if c_21 > 0 else 0.0
+        roc63 = round(((c_last - c_63) / c_63) * 100.0, 2) if c_63 > 0 else 0.0
+        roc126 = round(((c_last - c_126) / c_126) * 100.0, 2) if c_126 > 0 else 0.0
+        return roc21, roc63, roc126
+
+    @staticmethod
+    def compute_persistence_and_smoothness(
+        closes: Any
+    ) -> Tuple[Optional[float], int, float]:
+        """
+        Computes:
+        1. sma200_21d_ago (MA200[21], i.e., 200 DMA 21 sessions ago)
+        2. days_above_ma50_20d (count of last 20 sessions where Close > MA50)
+        3. r2_63d (63-day log-price linear regression R² smoothness in [0, 1])
+        """
+        n = len(closes)
+        if n == 0:
+            return None, 0, 0.0
+
+        # 1. MA200[21]: 200-session SMA 21 sessions ago
+        if n >= 221:
+            sma200_21d_ago = round(float(np.mean(closes[-221:-21])), 2)
+        else:
+            sma200_21d_ago = None
+
+        # 2. Trend Persistence: Close > MA50 for at least 15 of the last 20 sessions
+        c_tail = np.asarray(closes[-70:], dtype=np.float64)
+        if len(c_tail) >= 69:
+            cs = np.concatenate(([0.0], np.cumsum(c_tail[-69:])))
+            ma50_last20 = (cs[50:70] - cs[0:20]) / 50.0
+            closes_last20 = c_tail[-20:]
+            days_above_ma50_20d = int(np.sum(closes_last20 > ma50_last20))
+        elif len(c_tail) >= 50:
+            k = min(20, len(c_tail) - 49)
+            cs = np.concatenate(([0.0], np.cumsum(c_tail[-(49 + k):])))
+            ma50_k = (cs[50:50 + k] - cs[0:k]) / 50.0
+            closes_k = c_tail[-k:]
+            days_above_ma50_20d = int(np.sum(closes_k > ma50_k))
+        else:
+            days_above_ma50_20d = 0
+
+        # 3. 63-day log-price linear regression R² (0..1)
+        if n >= 63:
+            y = np.log(np.maximum(np.asarray(closes[-63:], dtype=np.float64), 1e-9))
+            x_c = np.arange(63, dtype=np.float64) - 31.0
+            y_c = y - np.mean(y)
+            ss_x = 20832.0  # sum((0..62 - 31)^2)
+            ss_y = float(np.sum(y_c * y_c))
+            cov_xy = float(np.sum(x_c * y_c))
+            if cov_xy > 0.0 and ss_y > 0.0:
+                r2_63d = round((cov_xy * cov_xy) / (ss_x * ss_y), 4)
+            else:
+                r2_63d = 0.0
+        else:
+            r2_63d = 0.0
+
+        return sma200_21d_ago, days_above_ma50_20d, r2_63d
+
+    @staticmethod
+    def _get_item_attr(item: Any, key: str, default: Any = None) -> Any:
+        if isinstance(item, dict):
+            return item.get(key, default)
+        return getattr(item, key, default)
+
+    @staticmethod
+    def _set_item_attr(item: Any, key: str, value: Any) -> None:
+        if isinstance(item, dict):
+            item[key] = value
+        else:
+            setattr(item, key, value)
+
+    def check_top10_step1(self, item: Any, require_vol_confirm: bool = True) -> bool:
+        """
+        Step 1: Shortlist Filters (Pass/Fail)
+        1. Stacked Trend (Explicit Pairwise):
+           Close > MA20, MA20 > MA50, MA50 > MA100, and MA100 > MA200 (ignore MA200 if new listing).
+        2. Rising 200 DMA:
+           MA200 > MA200[21] (200 DMA must be higher than 21 sessions ago; ignore if new listing).
+        3. Trend Persistence:
+           Close > MA50 for at least 15 of the last 20 sessions.
+        4. Overhead Supply Cap:
+           Close >= 0.85 * 52W_High AND Close >= 0.70 * All_Time_High.
+        5. Anti-Spike Smoothness:
+           1D_Return < 0.40 * ROC21 (or 63-day R² > 0.65).
+        6. Trend Strength & RSI Band:
+           ADX(14) > 25 (+DI > -DI) and RSI(14) between 55 and 75.
+        7. Liquidity & Volume:
+           ₹15 Cr liquidity floor (turnover_cr >= 15.0 and passes_liquidity)
+           + Daily Volume >= 1.4 * 50D Avg Volume (when require_vol_confirm is True).
+        """
+        get = self._get_item_attr
+        c = get(item, "current_price")
+        high_52w = get(item, "high_52w")
+        high_ath = get(item, "high_ath")
+        sma20 = get(item, "sma20")
+        sma50 = get(item, "sma50")
+        sma100 = get(item, "sma100")
+        sma200 = get(item, "sma200")
+        sma200_21d_ago = get(item, "sma200_21d_ago")
+        days_above_ma50_20d = get(item, "days_above_ma50_20d")
+        r2_63d = float(get(item, "r2_63d") or 0.0)
+        change_pct = float(get(item, "change_pct") or 0.0)
+        is_recent = bool(get(item, "is_recently_listed", False))
+        n_bars = int(get(item, "trading_days") or 500)
+        rsi14 = get(item, "rsi14")
+        adx14 = get(item, "adx14")
+        turnover_cr = float(get(item, "turnover_cr") or 0.0)
+        passes_liq = bool(get(item, "passes_liquidity", True))
+        is_vol_conf = bool(get(item, "is_volume_confirmed", False))
+
+        if c is None or high_52w is None or c <= 0 or high_52w <= 0:
+            return False
+
+        c_val = float(c)
+        h52_val = float(high_52w)
+        hath_val = float(high_ath) if (high_ath is not None and float(high_ath) > 0) else h52_val
+
+        # 1. Liquidity & Volume Floor (₹15 Cr + 1.4x Volume Trigger)
+        if not passes_liq or turnover_cr < 15.0:
+            return False
+        if require_vol_confirm and not is_vol_conf:
+            return False
+
+        # 2. Overhead Supply Cap: Close >= 0.85 * 52W_High AND Close >= 0.70 * All_Time_High
+        if c_val < 0.85 * h52_val or c_val < 0.70 * hath_val:
+            return False
+
+        # 3. Stacked Trend (Explicit Pairwise Checks):
+        #    Close > MA20, MA20 > MA50, MA50 > MA100, and MA100 > MA200 (ignore MA200 only if genuine new listing)
+        if n_bars < 100 or sma20 is None or sma50 is None or sma100 is None:
+            return False
+
+        ma20_val = float(sma20)
+        ma50_val = float(sma50)
+        ma100_val = float(sma100)
+
+        if not (c_val > ma20_val and ma20_val > ma50_val and ma50_val > ma100_val):
+            return False
+
+        if not is_recent:
+            if n_bars < 221 or sma200 is None or sma200_21d_ago is None:
+                return False
+            ma200_val = float(sma200)
+            ma200_21_val = float(sma200_21d_ago)
+            if not (ma100_val > ma200_val and ma50_val > ma200_val and c_val > ma200_val):
+                return False
+            # 4. Rising 200 DMA: MA200 > MA200[21] (200 DMA must be higher than 21 sessions ago)
+            if not (ma200_val > ma200_21_val):
+                return False
+
+        # 5. Trend Persistence: Close > MA50 for at least 15 of the last 20 sessions
+        if days_above_ma50_20d is None or int(days_above_ma50_20d) < 15:
+            return False
+
+        # 6. Anti-Spike Smoothness: 1D_Return < 0.40 * ROC21 (or 63-day R² > 0.65)
+        roc21 = float(get(item, "roc21") or 0.0)
+        roc63 = float(get(item, "roc63") or 0.0)
+        roc126 = float(get(item, "roc126") or 0.0)
+        if roc21 <= 0.0 or roc63 <= 0.0 or (n_bars >= 126 and roc126 <= 0.0):
+            return False
+        if not (change_pct < 0.40 * roc21 or r2_63d > 0.65):
+            return False
+
+        # 7. Trend Strength & RSI Band: ADX(14) > 25 and 55 <= RSI(14) <= 75
+        if adx14 is None or rsi14 is None:
+            return False
+        if not (float(adx14) > 25.0 and 55.0 <= float(rsi14) <= 75.0):
+            return False
+
+        return True
+
+    def rank_top10_momentum(
+        self,
+        items: List[Any],
+        require_vol_confirm: bool = True,
+        volatility_adjust: bool = True,
+        limit: int = 10
+    ) -> List[Any]:
+        """
+        Step 2: Normalized Ranking (Top 10)
+        Only runs on stocks that pass Step 1:
+        - Volatility-Adjust Returns: Divide ROC21, ROC63, and ROC126 by ATR(14)% (ATR14 / Close * 100).
+        - Convert to Percentile Ranks (0 to 100): Across shortlisted stocks, calculate P_Rank for
+          ROC21, ROC63, ROC126, and ADX14.
+        - Composite_Score = 0.40 * P_Rank(ROC21) + 0.20 * P_Rank(ROC63) + 0.20 * P_Rank(ROC126) + 0.20 * P_Rank(ADX14)
+        - Sort by Composite_Score descending and take the Top 10.
+        """
+        get = self._get_item_attr
+        set_attr = self._set_item_attr
+
+        shortlisted = [x for x in items if self.check_top10_step1(x, require_vol_confirm=require_vol_confirm)]
+        n = len(shortlisted)
+        if n == 0:
+            return []
+
+        m_roc21 = []
+        m_roc63 = []
+        m_roc126 = []
+        m_adx14 = []
+
+        for x in shortlisted:
+            roc21 = float(get(x, "roc21") or 0.0)
+            roc63 = float(get(x, "roc63") or 0.0)
+            roc126 = float(get(x, "roc126") or 0.0)
+            adx14 = float(get(x, "adx14") or 0.0)
+            atr_pct = float(get(x, "atr14_pct") or 0.0)
+
+            if volatility_adjust and atr_pct > 0:
+                m_roc21.append(roc21 / atr_pct)
+                m_roc63.append(roc63 / atr_pct)
+                m_roc126.append(roc126 / atr_pct)
+            else:
+                m_roc21.append(roc21)
+                m_roc63.append(roc63)
+                m_roc126.append(roc126)
+            m_adx14.append(adx14)
+
+        def calc_p_rank(values: List[float]) -> np.ndarray:
+            if n == 1:
+                return np.array([100.0])
+            ranks = pd.Series(values).rank(method="average", ascending=True).values
+            return ((ranks - 1.0) / (n - 1.0)) * 100.0
+
+        pr_roc21 = calc_p_rank(m_roc21)
+        pr_roc63 = calc_p_rank(m_roc63)
+        pr_roc126 = calc_p_rank(m_roc126)
+        pr_adx14 = calc_p_rank(m_adx14)
+
+        scored_items = []
+        for idx, x in enumerate(shortlisted):
+            comp = (
+                0.40 * float(pr_roc21[idx])
+                + 0.20 * float(pr_roc63[idx])
+                + 0.20 * float(pr_roc126[idx])
+                + 0.20 * float(pr_adx14[idx])
+            )
+            comp_rounded = round(comp, 2)
+            # Clone or update item
+            if isinstance(x, dict):
+                item_copy = dict(x)
+            else:
+                item_copy = x.model_copy() if hasattr(x, "model_copy") else x.copy()
+            set_attr(item_copy, "composite_score", comp_rounded)
+            set_attr(item_copy, "passes_top10_step1", True)
+            scored_items.append(item_copy)
+
+        scored_items.sort(
+            key=lambda it: (
+                float(get(it, "composite_score") or 0.0),
+                float(get(it, "adx14") or 0.0),
+                float(get(it, "vol_multiple") or 0.0)
+            ),
+            reverse=True
+        )
+
+        top_items = scored_items[:limit]
+        for rank_idx, it in enumerate(top_items, start=1):
+            set_attr(it, "top10_rank", rank_idx)
+
+        return top_items
+
     def analyze_stock(
         self,
         df: pd.DataFrame,
@@ -173,12 +539,8 @@ class ScreenerEngine:
                     dt = datetime.strptime(meta.listing_date.strip(), "%d-%b-%Y")
                     # Genuine IPO listed on exchange within the last 730 days (2 years)
                     is_recent_listing = (datetime.now() - dt).days <= 730
-                else:
-                    is_recent_listing = (total_bars < self.ath_min_trading_days)
             except Exception:
-                is_recent_listing = (total_bars < self.ath_min_trading_days)
-        else:
-            is_recent_listing = (total_bars < self.ath_min_trading_days)
+                is_recent_listing = False
 
         # 1. Thin Trading & Liquidity Filter
         last_20 = df.iloc[-min(20, total_bars):]
@@ -190,7 +552,9 @@ class ScreenerEngine:
         passes_liquidity = (active_days >= min(self.min_active_days_20d, len(last_20))) and (turnover_lakhs >= self.min_daily_turnover_lakhs)
 
         # 2. Trend & 200 SMA Momentum Slope Check
+        sma20 = float(row["sma20"]) if not pd.isna(row.get("sma20")) else None
         sma50 = float(row["sma50"]) if not pd.isna(row.get("sma50")) else None
+        sma100 = float(row["sma100"]) if not pd.isna(row.get("sma100")) else None
         sma200 = float(row["sma200"]) if not pd.isna(row.get("sma200")) else None
 
         sma200_slope_60d_pct = None
@@ -245,7 +609,15 @@ class ScreenerEngine:
                 status = "NEAR_52W_HIGH"
                 status_label = "Near 52-Week High (-10%)"
 
-        return HighLowAnalysis(
+        # Compute Wilder RSI(14), ADX(14), ATR(14)% and ROC(21, 63, 126) for Top 10 Momentum Ranking
+        closes_arr = df["close"].values
+        rsi14, adx14, atr14_pct = self.compute_wilder_oscillators(
+            df["high"].values, df["low"].values, closes_arr, period=14
+        )
+        roc21, roc63, roc126 = self.compute_roc_metrics(closes_arr)
+        sma200_21d_ago, days_above_ma50_20d, r2_63d = self.compute_persistence_and_smoothness(closes_arr)
+
+        analysis_obj = HighLowAnalysis(
             current_price=round(c, 2),
             change_pct=change_pct,
             high_52w=round(high_52w, 2),
@@ -259,9 +631,14 @@ class ScreenerEngine:
             is_recently_listed=is_recent_listing,
             passes_trend_check=passes_trend,
             trend_reasons=trend_reasons,
+            sma20=round(sma20, 2) if sma20 else None,
             sma50=round(sma50, 2) if sma50 else None,
+            sma100=round(sma100, 2) if sma100 else None,
             sma200=round(sma200, 2) if sma200 else None,
+            sma200_21d_ago=sma200_21d_ago,
             sma200_slope_60d_pct=sma200_slope_60d_pct,
+            days_above_ma50_20d=days_above_ma50_20d,
+            r2_63d=r2_63d,
             active_days_20d=active_days,
             turnover_cr=turnover_cr,
             passes_liquidity=passes_liquidity,
@@ -269,8 +646,16 @@ class ScreenerEngine:
             volume_multiple=vol_multiple,
             is_volume_confirmed=is_vol_confirmed,
             rs_rating_smallmid=rs_sm,
-            rs_rating_nifty50=rs_n50
+            rs_rating_nifty50=rs_n50,
+            rsi14=rsi14,
+            adx14=adx14,
+            atr14_pct=atr14_pct,
+            roc21=roc21,
+            roc63=roc63,
+            roc126=roc126
         )
+        analysis_obj.passes_top10_step1 = self.check_top10_step1(analysis_obj, require_vol_confirm=True)
+        return analysis_obj
 
     def run_screener(
         self,
@@ -317,15 +702,34 @@ class ScreenerEngine:
                 active_days_20d=analysis.active_days_20d,
                 trading_days=analysis.trading_days,
                 is_recently_listed=analysis.is_recently_listed,
+                sma20=analysis.sma20,
                 sma50=analysis.sma50,
+                sma100=analysis.sma100,
                 sma200=analysis.sma200,
+                sma200_21d_ago=analysis.sma200_21d_ago,
                 sma200_slope_60d_pct=analysis.sma200_slope_60d_pct,
+                days_above_ma50_20d=analysis.days_above_ma50_20d,
+                r2_63d=analysis.r2_63d,
                 passes_trend_check=analysis.passes_trend_check,
                 passes_liquidity=analysis.passes_liquidity,
                 is_fno=universe_store.is_fno(sym),
-                fno_lot_size=universe_store.get_fno_lot_size(sym)
+                fno_lot_size=universe_store.get_fno_lot_size(sym),
+                rsi14=analysis.rsi14,
+                adx14=analysis.adx14,
+                atr14_pct=analysis.atr14_pct,
+                roc21=analysis.roc21,
+                roc63=analysis.roc63,
+                roc126=analysis.roc126,
+                passes_top10_step1=analysis.passes_top10_step1
             )
             items.append(item)
+
+        # Annotate pre-calculated Top 10 Composite Scores & Ranks on the default shortlist
+        top10_ranked = self.rank_top10_momentum(items, require_vol_confirm=True)
+        top10_map = {x.symbol: (x.composite_score, x.top10_rank) for x in top10_ranked}
+        for it in items:
+            if it.symbol in top10_map:
+                it.composite_score, it.top10_rank = top10_map[it.symbol]
 
         # Prioritize: Status priority -> Volume Confirmed (🔥 first) -> RS Rating (Small/Midcap)
         status_priority = {

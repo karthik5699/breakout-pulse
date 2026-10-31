@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts'
-import { X, ChevronUp, ChevronDown, MessageCircle } from 'lucide-react'
+import { X, ChevronUp, ChevronDown } from 'lucide-react'
 
 export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose, theme }) {
   const chartContainerRef = useRef(null)
@@ -27,24 +27,6 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
     if (hasNext && onSelectStock) {
       onSelectStock(stocks[currentIndex + 1].symbol)
     }
-  }
-
-  const handleShareStockWhatsApp = () => {
-    const closePrice = data?.candles?.length ? data.candles[data.candles.length - 1].close : 0
-    const prevPrice = data?.candles?.length > 1 ? data.candles[data.candles.length - 2].close : closePrice
-    const chgPct = prevPrice > 0 ? (((closePrice - prevPrice) / prevPrice) * 100).toFixed(2) : '0.00'
-    const chgSign = Number(chgPct) >= 0 ? `+${chgPct}%` : `${chgPct}%`
-    const fnoTag = data?.is_fno ? ` [F&O${data.fno_lot_size ? ` • Lot: ${data.fno_lot_size}` : ''}]` : ''
-    const msg = [
-      `⚡ *${symbol}*${fnoTag} — *${data?.name || symbol}*`,
-      `💰 *Price:* ₹${Number(closePrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${chgSign})`,
-      `🔥 *Volume Signal:* ${Number(data?.volume_multiple || 1).toFixed(2)}x (Turnover: ₹${Number(data?.turnover_cr || 0).toFixed(2)} Cr)`,
-      `🎯 *52W High:* ₹${Number(data?.high_52w || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${Number(data?.dist_to_52w_high_pct || 0).toFixed(2)}%)`,
-      `👑 *All-Time High:* ₹${Number(data?.high_ath || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${Number(data?.dist_to_ath_pct || 0).toFixed(2)}%)`,
-      `_Shared via BreakoutPulse NSE Screener_`,
-    ].join('\n')
-    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
-    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const applyRange = (rangeKey, chartInstance, candles) => {
@@ -506,7 +488,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
             </div>
           )}
 
-          {/* Header Right Actions: Prev/Next Navigation, WhatsApp Share, Range Selector & Close */}
+          {/* Header Right Actions: Prev/Next Navigation, Range Selector & Close */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Stock List Navigation (Keyboard ↑/↓) */}
             {stocks.length > 1 && currentIndex !== -1 && (
@@ -534,18 +516,6 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               </div>
-            )}
-
-            {/* Share Setup on WhatsApp */}
-            {data && (
-              <button
-                onClick={handleShareStockWhatsApp}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[#16A34A] dark:text-[#22C55E] bg-[#16A34A]/10 hover:bg-[#16A34A]/20 border border-[#16A34A]/25 transition-colors"
-                title="Share this stock setup on WhatsApp"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Share</span>
-              </button>
             )}
 
             {/* Range Selector */}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Crown, Target, Flame, Sparkles, Calendar } from 'lucide-react'
+import { Crown, Target, Flame, Sparkles, Calendar, Trophy } from 'lucide-react'
 
 export default function MarketBanner({ stats, activeTab, setActiveTab, newlyAddedCount = 0 }) {
   if (!stats) return null
@@ -25,6 +25,13 @@ export default function MarketBanner({ stats, activeTab, setActiveTab, newlyAdde
       sub: 'Near Highs (< 2Y History)',
       count: stats.recent_listing_count || 0,
       icon: Sparkles
+    },
+    {
+      id: 'top10',
+      label: 'Top 10 Momentum',
+      sub: 'Stacked MA • ADX > 25 • RSI 55–75',
+      count: stats.top10_count || 0,
+      icon: Trophy
     }
   ]
 
@@ -45,7 +52,7 @@ export default function MarketBanner({ stats, activeTab, setActiveTab, newlyAdde
   return (
     <div className="mb-6 space-y-3">
       {/* Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((c) => {
           const Icon = c.icon
           const isActive = activeTab === c.id

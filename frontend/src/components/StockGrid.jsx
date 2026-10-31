@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { ShieldCheck, Sparkles } from 'lucide-react'
 
-export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loading }) {
+export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loading, activeTab = 'ath' }) {
+  const isTop10 = activeTab === 'top10'
   const [focusedIndex, setFocusedIndex] = useState(0)
   const gridRef = useRef(null)
   const cardRefs = useRef([])
@@ -180,6 +181,11 @@ export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loadi
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  {isTop10 && (
+                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[11px] font-bold tabular-nums bg-[#8069BF]/12 text-[#8069BF] dark:bg-[#8069BF]/25 dark:text-[#C4B5FD]">
+                      #{s.top10_rank || idx + 1}
+                    </span>
+                  )}
                   <span className="font-semibold text-base text-[#111827] dark:text-[#F9FAFB] flex items-center gap-1.5">
                     {s.symbol}
                     {s.passes_trend_check && (
@@ -198,6 +204,11 @@ export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loadi
                       title={s.fno_lot_size ? `NSE F&O Stock • Lot Size: ${s.fno_lot_size}` : 'NSE F&O Stock'}
                     >
                       F&O
+                    </span>
+                  )}
+                  {isTop10 && s.composite_score != null && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#8069BF]/12 text-[#8069BF] dark:bg-[#8069BF]/25 dark:text-[#C4B5FD] border border-[#8069BF]/30 font-bold text-xs tabular-nums">
+                      Score {formatNum2(s.composite_score)}
                     </span>
                   )}
                   {s.is_volume_confirmed && (
@@ -247,21 +258,33 @@ export default function StockGrid({ stocks, onSelectStock, selectedSymbol, loadi
                 </div>
               </div>
 
-              <div>
-                <div className="text-[10px] text-[#6B7280] dark:text-[#9CA3AF] uppercase font-medium">ATH (₹)</div>
-                <div className="font-semibold text-[#111827] dark:text-[#F9FAFB] tabular-nums">
-                  {formatNum2(s.high_ath)}
+              {isTop10 ? (
+                <div>
+                  <div className="text-[10px] text-[#6B7280] dark:text-[#9CA3AF] uppercase font-medium">RSI(14) / ADX(14)</div>
+                  <div className="font-semibold text-[#111827] dark:text-[#F9FAFB] tabular-nums">
+                    RSI {formatNum2(s.rsi14)}
+                  </div>
+                  <div className="text-[11px] tabular-nums font-semibold text-[#8069BF] dark:text-[#C4B5FD]">
+                    ADX {formatNum2(s.adx14)}
+                  </div>
                 </div>
-                <div
-                  className={`text-[11px] tabular-nums font-semibold ${
-                    Number(s.dist_to_ath_pct) >= -2.0
-                      ? 'text-[#16A34A] dark:text-[#22C55E]'
-                      : 'text-[#6B7280] dark:text-[#9CA3AF]'
-                  }`}
-                >
-                  {formatPct2(s.dist_to_ath_pct)}
+              ) : (
+                <div>
+                  <div className="text-[10px] text-[#6B7280] dark:text-[#9CA3AF] uppercase font-medium">ATH (₹)</div>
+                  <div className="font-semibold text-[#111827] dark:text-[#F9FAFB] tabular-nums">
+                    {formatNum2(s.high_ath)}
+                  </div>
+                  <div
+                    className={`text-[11px] tabular-nums font-semibold ${
+                      Number(s.dist_to_ath_pct) >= -2.0
+                        ? 'text-[#16A34A] dark:text-[#22C55E]'
+                        : 'text-[#6B7280] dark:text-[#9CA3AF]'
+                    }`}
+                  >
+                    {formatPct2(s.dist_to_ath_pct)}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Footer Strip */}

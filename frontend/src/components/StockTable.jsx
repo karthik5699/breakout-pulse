@@ -9,7 +9,9 @@ export default function StockTable({
   sortField = 'vol_multiple',
   sortAsc = false,
   onSortChange,
+  activeTab = 'ath',
 }) {
+  const isTop10 = activeTab === 'top10'
   const [focusedIndex, setFocusedIndex] = useState(0)
   const rowRefs = useRef([])
 
@@ -190,6 +192,15 @@ export default function StockTable({
               >
                 Ticker / Company {renderSortIcon('symbol')}
               </th>
+              {isTop10 && (
+                <th
+                  onClick={() => handleSort('composite_score')}
+                  className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                  title="Composite Score = 0.40*P_Rank(ROC21) + 0.20*P_Rank(ROC63) + 0.20*P_Rank(ROC126) + 0.20*P_Rank(ADX14)"
+                >
+                  Composite Score {renderSortIcon('composite_score')}
+                </th>
+              )}
               <th
                 onClick={() => handleSort('current_price')}
                 className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
@@ -208,30 +219,53 @@ export default function StockTable({
               >
                 Volume Signal {renderSortIcon('vol_multiple')}
               </th>
-              <th
-                onClick={() => handleSort('high_52w')}
-                className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
-              >
-                52W High (₹) {renderSortIcon('high_52w')}
-              </th>
+              {isTop10 ? (
+                <>
+                  <th
+                    onClick={() => handleSort('rsi14')}
+                    className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                    title="14-Period Wilder RSI (Target Band: 55 to 75)"
+                  >
+                    RSI (14) {renderSortIcon('rsi14')}
+                  </th>
+                  <th
+                    onClick={() => handleSort('adx14')}
+                    className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                    title="14-Period Wilder ADX (Target: > 25)"
+                  >
+                    ADX (14) {renderSortIcon('adx14')}
+                  </th>
+                </>
+              ) : (
+                <th
+                  onClick={() => handleSort('high_52w')}
+                  className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                >
+                  52W High (₹) {renderSortIcon('high_52w')}
+                </th>
+              )}
               <th
                 onClick={() => handleSort('dist_to_52w_high_pct')}
                 className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
               >
                 Dist to 52W {renderSortIcon('dist_to_52w_high_pct')}
               </th>
-              <th
-                onClick={() => handleSort('high_ath')}
-                className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
-              >
-                ATH (₹) {renderSortIcon('high_ath')}
-              </th>
-              <th
-                onClick={() => handleSort('dist_to_ath_pct')}
-                className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
-              >
-                Dist to ATH {renderSortIcon('dist_to_ath_pct')}
-              </th>
+              {!isTop10 && (
+                <>
+                  <th
+                    onClick={() => handleSort('high_ath')}
+                    className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                  >
+                    ATH (₹) {renderSortIcon('high_ath')}
+                  </th>
+                  <th
+                    onClick={() => handleSort('dist_to_ath_pct')}
+                    className="py-3.5 px-3 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
+                  >
+                    Dist to ATH {renderSortIcon('dist_to_ath_pct')}
+                  </th>
+                </>
+              )}
               <th
                 onClick={() => handleSort('turnover_cr')}
                 className="py-3.5 px-4 text-right cursor-pointer select-none hover:text-[#111827] dark:hover:text-[#F9FAFB] group font-medium tabular-nums"
@@ -264,7 +298,12 @@ export default function StockTable({
                 >
                   {/* Ticker & Company Name */}
                   <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
+                      {isTop10 && (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg text-[11px] font-bold tabular-nums bg-[#8069BF]/12 text-[#8069BF] dark:bg-[#8069BF]/25 dark:text-[#C4B5FD] shrink-0">
+                          #{s.top10_rank || idx + 1}
+                        </span>
+                      )}
                       <div>
                         <div className="font-semibold text-sm tracking-tight text-[#111827] dark:text-[#F9FAFB] flex items-center gap-1.5">
                           <span>{s.symbol}</span>
@@ -293,6 +332,18 @@ export default function StockTable({
                     </div>
                   </td>
 
+                  {/* Composite Score (Top 10 Tab) */}
+                  {isTop10 && (
+                    <td className="py-3 px-3 text-right tabular-nums">
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-md font-bold text-xs bg-[#8069BF]/12 text-[#8069BF] dark:bg-[#8069BF]/25 dark:text-[#C4B5FD] border border-[#8069BF]/30 tabular-nums"
+                        title={`ROC21: ${formatPct2(s.roc21)} | ROC63: ${formatPct2(s.roc63)} | ROC126: ${formatPct2(s.roc126)}`}
+                      >
+                        {formatNum2(s.composite_score)}
+                      </span>
+                    </td>
+                  )}
+
                   {/* Price */}
                   <td className="py-3 px-3 text-right tabular-nums font-semibold text-[#111827] dark:text-[#F9FAFB]">
                     ₹{formatNum2(s.current_price)}
@@ -316,25 +367,42 @@ export default function StockTable({
                     )}
                   </td>
 
-                  {/* 52W High */}
-                  <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
-                    {formatNum2(s.high_52w)}
-                  </td>
+                  {isTop10 ? (
+                    <>
+                      {/* RSI (14) */}
+                      <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
+                        {formatNum2(s.rsi14)}
+                      </td>
+                      {/* ADX (14) */}
+                      <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
+                        {formatNum2(s.adx14)}
+                      </td>
+                    </>
+                  ) : (
+                    /* 52W High */
+                    <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
+                      {formatNum2(s.high_52w)}
+                    </td>
+                  )}
 
                   {/* Dist to 52W with Proximity Bar */}
                   <td className="py-3 px-3 text-right tabular-nums">
                     {renderProximityMetric(s.dist_to_52w_high_pct)}
                   </td>
 
-                  {/* ATH */}
-                  <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
-                    {formatNum2(s.high_ath)}
-                  </td>
+                  {!isTop10 && (
+                    <>
+                      {/* ATH */}
+                      <td className="py-3 px-3 text-right tabular-nums font-medium text-[#374151] dark:text-[#D1D5DB]">
+                        {formatNum2(s.high_ath)}
+                      </td>
 
-                  {/* Dist to ATH with Proximity Bar */}
-                  <td className="py-3 px-3 text-right tabular-nums">
-                    {renderProximityMetric(s.dist_to_ath_pct)}
-                  </td>
+                      {/* Dist to ATH with Proximity Bar */}
+                      <td className="py-3 px-3 text-right tabular-nums">
+                        {renderProximityMetric(s.dist_to_ath_pct)}
+                      </td>
+                    </>
+                  )}
 
                   {/* Turnover */}
                   <td className="py-3 px-4 text-right tabular-nums font-normal text-[#6B7280] dark:text-[#9CA3AF]">

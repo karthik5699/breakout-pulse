@@ -403,8 +403,16 @@ class BhavcopyEngine:
                 # Moving Averages and Stage 2 Trend Check
                 sma50 = item.get("sma50")
                 sma200 = item.get("sma200")
+                sma200_slope = item.get("sma200_slope_60d_pct")
                 n_bars = int(item.get("trading_days") or 500)
-                passes_trend = bool(passes_liq and sma50 and sma200 and new_close > sma50 > sma200)
+                passes_trend = bool(
+                    passes_liq
+                    and sma50 is not None
+                    and sma200 is not None
+                    and new_close > float(sma50)
+                    and float(sma50) > float(sma200)
+                    and (sma200_slope is None or float(sma200_slope) >= 0.0)
+                )
 
                 # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
                 is_above_mas = True
@@ -464,7 +472,17 @@ class BhavcopyEngine:
 
             item["is_fno"] = universe_store.is_fno(sym)
             item["fno_lot_size"] = universe_store.get_fno_lot_size(sym)
+            item["passes_top10_step1"] = screener_engine.check_top10_step1(item, require_vol_confirm=True)
+            item["composite_score"] = None
+            item["top10_rank"] = None
             updated_results.append(item)
+
+        top10_ranked = screener_engine.rank_top10_momentum(updated_results, require_vol_confirm=True)
+        top10_map = {x["symbol"]: (x.get("composite_score"), x.get("top10_rank")) for x in top10_ranked}
+        for item in updated_results:
+            sym = item.get("symbol", "")
+            if sym in top10_map:
+                item["composite_score"], item["top10_rank"] = top10_map[sym]
 
         payload = {
             "last_scanned": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

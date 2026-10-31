@@ -36,9 +36,14 @@ class HighLowAnalysis(BaseModel):
     # Trend & Momentum
     passes_trend_check: bool
     trend_reasons: List[str] = []
+    sma20: Optional[float] = None
     sma50: Optional[float] = None
+    sma100: Optional[float] = None
     sma200: Optional[float] = None
+    sma200_21d_ago: Optional[float] = None
     sma200_slope_60d_pct: Optional[float] = None # % rise in 200 SMA over 60 trading days
+    days_above_ma50_20d: Optional[int] = None    # sessions with Close > MA50 in last 20 sessions
+    r2_63d: Optional[float] = None               # 63-day trend smoothness R^2 (0..1)
     # Liquidity & Consistency
     active_days_20d: int            # count of non-zero trading days in last 20 days (require >= 18)
     turnover_cr: float              # 20-day avg daily turnover in Crores (Price * Vol)
@@ -50,6 +55,16 @@ class HighLowAnalysis(BaseModel):
     # Relative Strength
     rs_rating_smallmid: int         # 1-99 percentile rank vs small/midcap universe
     rs_rating_nifty50: int          # 1-99 percentile rank vs Nifty 50
+    # Top 10 Momentum Shortlist & Composite Ranking Metrics
+    rsi14: Optional[float] = None
+    adx14: Optional[float] = None
+    atr14_pct: Optional[float] = None
+    roc21: Optional[float] = None
+    roc63: Optional[float] = None
+    roc126: Optional[float] = None
+    passes_top10_step1: Optional[bool] = False
+    composite_score: Optional[float] = None
+    top10_rank: Optional[int] = None
 
 class StockScreenerItem(BaseModel):
     symbol: str
@@ -72,13 +87,27 @@ class StockScreenerItem(BaseModel):
     active_days_20d: Optional[int] = 20
     trading_days: Optional[int] = 500
     is_recently_listed: Optional[bool] = False
+    sma20: Optional[float] = None
     sma50: Optional[float] = None
+    sma100: Optional[float] = None
     sma200: Optional[float] = None
+    sma200_21d_ago: Optional[float] = None
     sma200_slope_60d_pct: Optional[float] = None
+    days_above_ma50_20d: Optional[int] = None
+    r2_63d: Optional[float] = None
     passes_trend_check: Optional[bool] = False
     passes_liquidity: Optional[bool] = True
     is_fno: bool = False
     fno_lot_size: Optional[int] = None
+    rsi14: Optional[float] = None
+    adx14: Optional[float] = None
+    atr14_pct: Optional[float] = None
+    roc21: Optional[float] = None
+    roc63: Optional[float] = None
+    roc126: Optional[float] = None
+    passes_top10_step1: Optional[bool] = False
+    composite_score: Optional[float] = None
+    top10_rank: Optional[int] = None
 
 class ChartPayload(BaseModel):
     symbol: str
@@ -102,6 +131,7 @@ class UniverseStats(BaseModel):
     near_ath_count: int
     recent_listing_count: int
     confirmed_volume_count: int
+    top10_count: Optional[int] = 0
     fno_count: Optional[int] = 0
     last_scanned: Optional[str] = None
     latest_data_date: Optional[str] = None

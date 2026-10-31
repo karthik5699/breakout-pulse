@@ -20,7 +20,6 @@ from backend.app.models import (
 from backend.app.universe_store import universe_store
 from backend.app.data_engine import data_engine, BENCHMARK_SMALLMID, BENCHMARK_NIFTY50
 from backend.app.screener_engine import screener_engine
-from backend.app.whatsapp_service import whatsapp_service
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -52,7 +51,8 @@ scan_state = {
     "latest_data_date": None,
     "scan_message": None,
     "scan_status_type": "info",
-    "cached_results": []
+    "cached_results": [],
+    "cache_mtime": None
 }
 
 # Guards Bhavcopy ingestion (scan + upload) so concurrent requests don't write SQLite/cache simultaneously
@@ -63,6 +63,7 @@ def _load_initial_cache():
     global scan_state
     if os.path.exists(CACHE_JSON_PATH):
         try:
+            mtime = os.path.getmtime(CACHE_JSON_PATH)
             with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
                 items = []
@@ -73,6 +74,7 @@ def _load_initial_cache():
                     items.append(StockScreenerItem(**x))
                 if items:
                     scan_state["cached_results"] = items
+                    scan_state["cache_mtime"] = mtime
                     scan_state["last_scanned"] = payload.get("last_scanned", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                     scan_state["latest_data_date"] = payload.get("latest_data_date", "2026-08-28")
                     logger.info(f"Loaded {len(items)} pre-calculated stocks from {CACHE_JSON_PATH}")
@@ -80,6 +82,20 @@ def _load_initial_cache():
                     logger.warning(f"Cache file at {CACHE_JSON_PATH} had 0 items; preserving in-memory cached results ({len(scan_state.get('cached_results', []))} stocks).")
         except Exception as e:
             logger.warning(f"Could not load pre-seeded cache: {e}")
+
+def _get_live_cached_results() -> List[StockScreenerItem]:
+    """Returns cached screener items, reloading from disk if screener_cache.json was updated."""
+    if os.path.exists(CACHE_JSON_PATH):
+        try:
+            current_mtime = os.path.getmtime(CACHE_JSON_PATH)
+            if not scan_state.get("cached_results") or scan_state.get("cache_mtime") != current_mtime:
+                _load_initial_cache()
+        except Exception:
+            pass
+    results: List[StockScreenerItem] = scan_state.get("cached_results", [])
+    if not results:
+        results = _recompute_from_sqlite()
+    return results
 
 _load_initial_cache()
 
@@ -202,18 +218,15 @@ def _is_near_52w(x: StockScreenerItem) -> bool:
 
 @app.get("/api/universe-stats", response_model=UniverseStats)
 def get_universe_stats():
-    results: List[StockScreenerItem] = scan_state.get("cached_results", [])
-    if not results:
-        _load_initial_cache()
-        results = scan_state.get("cached_results", [])
-    if not results:
-        results = _recompute_from_sqlite()
+    results: List[StockScreenerItem] = _get_live_cached_results()
 
     near_ath = sum(1 for x in results if _is_ath(x))
     recent_listing = sum(1 for x in results if _is_recent_listing(x))
     near_52w = sum(1 for x in results if _is_near_52w(x))
     at_52w = sum(1 for x in results if x.dist_to_52w_high_pct >= -0.5 and not _is_ath(x) and not _is_recent_listing(x) and x.passes_liquidity and _is_above_mas(x))
     confirmed_vol = sum(1 for x in results if x.is_volume_confirmed and (_is_ath(x) or _is_near_52w(x) or _is_recent_listing(x)))
+    top10_ranked = screener_engine.rank_top10_momentum(results, require_vol_confirm=False, limit=10)
+    top10_count = len(top10_ranked)
     fno_total = sum(1 for x in results if x.is_fno)
 
     # Small/Midcap Benchmark Trend
@@ -250,6 +263,7 @@ def get_universe_stats():
         near_ath_count=near_ath,
         recent_listing_count=recent_listing,
         confirmed_volume_count=confirmed_vol,
+        top10_count=top10_count,
         fno_count=fno_total,
         last_scanned=scan_state.get("last_scanned"),
         latest_data_date=latest_date,
@@ -261,7 +275,7 @@ def get_universe_stats():
 
 @app.get("/api/stocks", response_model=List[StockScreenerItem])
 def get_screened_stocks(
-    tab: str = Query("ath", description="Filter tab: ath, near_52w, breakout_52w, recent_listings, all"),
+    tab: str = Query("ath", description="Filter tab: ath, near_52w, breakout_52w, recent_listings, top10, all"),
     volume_confirmed_only: bool = Query(True, description="Default view shows only volume confirmed (>=1.4x) stocks"),
     trend_only: bool = Query(True, description="Filter only stocks passing Stage 2 trend checks (Price > 50 > 200 SMA)"),
     fno_only: bool = Query(False, description="Filter only official NSE F&O stocks"),
@@ -269,12 +283,25 @@ def get_screened_stocks(
     min_rs: int = Query(0, description="Minimum Small/Midcap RS rating (e.g. 70)"),
     limit: int = Query(250, description="Max items to return")
 ):
-    results: List[StockScreenerItem] = scan_state.get("cached_results", [])
-    if not results:
-        _load_initial_cache()
-        results = scan_state.get("cached_results", [])
-    if not results:
-        results = _recompute_from_sqlite()
+    results: List[StockScreenerItem] = _get_live_cached_results()
+
+    # Dedicated Top 10 Momentum Tab: Step 1 Shortlist + Step 2 Normalized Composite Score Ranking
+    if tab == "top10":
+        candidates = results
+        if fno_only:
+            candidates = [x for x in candidates if x.is_fno]
+        if min_rs > 0:
+            candidates = [x for x in candidates if (x.rs_rating_smallmid or 0) >= min_rs]
+        top10 = screener_engine.rank_top10_momentum(
+            candidates,
+            require_vol_confirm=volume_confirmed_only,
+            volatility_adjust=True,
+            limit=10
+        )
+        if search:
+            s = search.strip().upper()
+            top10 = [x for x in top10 if s in x.symbol.upper() or s in x.name.upper()]
+        return top10
 
     # Base liquidity filter: require valid liquidity for all setups
     filtered = [x for x in results if x.passes_liquidity] if tab != "all" else results
@@ -427,16 +454,6 @@ def trigger_scan():
         scan_state["scan_status_type"] = "success" if result.get("status") == "success" else "info"
         if result.get("trade_date") and (result.get("stocks_updated", 0) > 0 or result.get("is_today_available")):
             scan_state["latest_data_date"] = result["trade_date"]
-            # Auto-dispatch WhatsApp digest if enabled and new stocks were updated
-            if result.get("stocks_updated", 0) > 0 and whatsapp_service.config.get("auto_send_on_scan"):
-                try:
-                    results_list = scan_state.get("cached_results", [])
-                    ath_s = [x for x in results_list if _is_ath(x) and x.passes_trend_check]
-                    w52_s = [x for x in results_list if _is_near_52w(x) and x.passes_trend_check]
-                    msg = whatsapp_service.build_digest_message(ath_s, w52_s, latest_date=result["trade_date"])
-                    whatsapp_service.send_message(msg)
-                except Exception as wa_err:
-                    logger.warning(f"Auto WhatsApp send after scan failed: {wa_err}")
         
         return {
             "status": result["status"],
@@ -533,62 +550,6 @@ async def upload_universe_csv(file: UploadFile = File(...), replace: bool = Form
     except Exception as e:
         logger.error(f"Failed to process uploaded CSV: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def _get_digest_preview(override_opts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    results: List[StockScreenerItem] = scan_state.get("cached_results", [])
-    if not results:
-        _load_initial_cache()
-        results = scan_state.get("cached_results", [])
-    latest_date = data_engine.get_latest_data_date() or scan_state.get("latest_data_date", "2026-08-28")
-    ath_stocks = [x for x in results if _is_ath(x) and x.passes_trend_check]
-    near_52w_stocks = [x for x in results if _is_near_52w(x) and x.passes_trend_check]
-    msg = whatsapp_service.build_digest_message(ath_stocks, near_52w_stocks, latest_date=latest_date, override_opts=override_opts)
-    phone = (override_opts or {}).get("phone_number", whatsapp_service.config.get("phone_number", ""))
-    wa_url = whatsapp_service.build_wa_me_url(msg, phone)
-    return {
-        "whatsapp_text": msg,
-        "wa_me_url": wa_url,
-        "latest_data_date": latest_date
-    }
-
-
-@app.get("/api/whatsapp/config")
-def get_whatsapp_config():
-    cfg = whatsapp_service.load_config()
-    preview = _get_digest_preview()
-    return {
-        "config": cfg,
-        **preview
-    }
-
-
-@app.post("/api/whatsapp/config")
-def update_whatsapp_config(payload: Dict[str, Any] = Body(...)):
-    cfg = whatsapp_service.save_config(payload)
-    preview = _get_digest_preview()
-    return {
-        "status": "success",
-        "message": "WhatsApp alert preferences saved.",
-        "config": cfg,
-        **preview
-    }
-
-
-@app.post("/api/whatsapp/send")
-def send_whatsapp_alert(payload: Optional[Dict[str, Any]] = Body(default=None)):
-    payload = payload or {}
-    if payload.get("config"):
-        whatsapp_service.save_config(payload["config"])
-    custom_text = payload.get("custom_message")
-    if custom_text:
-        msg = str(custom_text)
-    else:
-        preview = _get_digest_preview(override_opts=payload.get("config"))
-        msg = preview["whatsapp_text"]
-
-    result = whatsapp_service.send_message(msg, custom_config=payload.get("config"))
-    return result
 
 
 # Serve React Frontend in Production

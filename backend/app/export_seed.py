@@ -126,7 +126,16 @@ def export_cache(as_of_date: Optional[str] = None):
         active_days = sum(1 for v in last_20_vols if v > 0)
         
         turnovers_20 = [c * v for c, v in zip(last_20_closes, last_20_vols)]
-        turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2) if turnovers_20 else 0.0
+        if len(turnovers_20) > 5:
+            sorted_t20 = sorted(turnovers_20)
+            # Exclude single highest 1-day outlier spike if it is > 4x the rest of the 20-day mean
+            rest_mean = sum(sorted_t20[:-1]) / (len(sorted_t20) - 1)
+            if sorted_t20[-1] > 4.0 * rest_mean:
+                turnover_cr = round(rest_mean / 1e7, 2)
+            else:
+                turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2)
+        else:
+            turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2) if turnovers_20 else 0.0
 
         # Require >= 15 active non-zero trading days and >= ₹25 Lakhs/day turnover
         passes_liquidity = bool(active_days >= 15 and turnover_cr >= 0.25)
@@ -141,11 +150,21 @@ def export_cache(as_of_date: Optional[str] = None):
         dist_to_52w = round(((current_price - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
         dist_to_ath = round(((current_price - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
 
-        # Moving Averages
-        sma50_bars = min(n_bars, 50)
-        sma50 = sum(closes[-sma50_bars:]) / sma50_bars
-        sma200_bars = min(n_bars, 200)
-        sma200 = sum(closes[-sma200_bars:]) / sma200_bars
+        # Moving Averages (require full window so short-history stocks don't get fake MAs)
+        sma20 = (sum(closes[-20:]) / 20.0) if n_bars >= 20 else None
+        sma50 = (sum(closes[-50:]) / 50.0) if n_bars >= 50 else None
+        sma100 = (sum(closes[-100:]) / 100.0) if n_bars >= 100 else None
+        sma200 = (sum(closes[-200:]) / 200.0) if n_bars >= 200 else None
+
+        sma200_slope_60d_pct = None
+        if n_bars >= 260 and sma200 is not None:
+            sma200_60d_ago = sum(closes[-260:-60]) / 200.0
+            if sma200_60d_ago > 0:
+                sma200_slope_60d_pct = round(((sma200 - sma200_60d_ago) / sma200_60d_ago) * 100.0, 2)
+        elif n_bars > 200 and sma200 is not None:
+            sma200_prev = sum(closes[:200]) / 200.0
+            if sma200_prev > 0:
+                sma200_slope_60d_pct = round(((sma200 - sma200_prev) / sma200_prev) * 100.0, 2)
 
         # Volume Multiple: Require >= 5,000 shares for confirmed institutional volume
         vol_50_bars = min(n_bars, 50)
@@ -161,15 +180,13 @@ def export_cache(as_of_date: Optional[str] = None):
                 dt = datetime.strptime(list_date_str, "%d-%b-%Y")
                 is_recent = (datetime.now() - dt).days <= 730
             except Exception:
-                is_recent = bool(n_bars < 500)
-        else:
-            is_recent = bool(n_bars < 500)
+                is_recent = False
 
         # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
         is_above_mas = True
-        if n_bars >= 50 and current_price < sma50:
+        if sma50 is not None and current_price < sma50:
             is_above_mas = False
-        if n_bars >= 200 and current_price < sma200:
+        if sma200 is not None and current_price < sma200:
             is_above_mas = False
 
         # Status categorization:
@@ -195,8 +212,21 @@ def export_cache(as_of_date: Optional[str] = None):
             status = "CONSOLIDATING"
             status_label = "Consolidating"
 
-        # Stage 2 Trend Check: Price > 50 SMA > 200 SMA
-        passes_trend = bool(passes_liquidity and current_price > sma50 > sma200 and n_bars >= 100)
+        # Top 10 Momentum Oscillators, ROC, Persistence & Smoothness Metrics
+        rsi14, adx14, atr14_pct = screener_engine.compute_wilder_oscillators(highs, lows, closes, period=14)
+        roc21, roc63, roc126 = screener_engine.compute_roc_metrics(closes)
+        sma200_21d_ago, days_above_ma50_20d, r2_63d = screener_engine.compute_persistence_and_smoothness(closes)
+
+        # Stage 2 Trend Check: Price > 50 SMA, 50 SMA > 200 SMA, and rising 200 SMA (MA200 > MA200[21])
+        passes_trend = bool(
+            passes_liquidity
+            and sma50 is not None
+            and sma200 is not None
+            and current_price > sma50
+            and sma50 > sma200
+            and n_bars >= 200
+            and (sma200_21d_ago is None or sma200 > sma200_21d_ago)
+        )
 
         from backend.app.universe_store import universe_store
         name = stock_names.get(sym, sym)
@@ -222,13 +252,29 @@ def export_cache(as_of_date: Optional[str] = None):
             "active_days_20d": active_days,
             "trading_days": n_bars,
             "is_recently_listed": is_recent,
-            "sma50": round(sma50, 2),
-            "sma200": round(sma200, 2),
+            "sma20": round(sma20, 2) if sma20 is not None else None,
+            "sma50": round(sma50, 2) if sma50 is not None else None,
+            "sma100": round(sma100, 2) if sma100 is not None else None,
+            "sma200": round(sma200, 2) if sma200 is not None else None,
+            "sma200_21d_ago": sma200_21d_ago,
+            "sma200_slope_60d_pct": sma200_slope_60d_pct,
+            "days_above_ma50_20d": days_above_ma50_20d,
+            "r2_63d": r2_63d,
             "passes_trend_check": passes_trend,
             "passes_liquidity": passes_liquidity,
             "is_fno": universe_store.is_fno(sym),
-            "fno_lot_size": universe_store.get_fno_lot_size(sym)
+            "fno_lot_size": universe_store.get_fno_lot_size(sym),
+            "rsi14": rsi14,
+            "adx14": adx14,
+            "atr14_pct": atr14_pct,
+            "roc21": roc21,
+            "roc63": roc63,
+            "roc126": roc126,
+            "passes_top10_step1": False,
+            "composite_score": None,
+            "top10_rank": None
         }
+        item["passes_top10_step1"] = screener_engine.check_top10_step1(item, require_vol_confirm=False)
         stock_dfs[sym] = pd.DataFrame({"close": closes})
         stock_items[sym] = item
 
@@ -243,6 +289,14 @@ def export_cache(as_of_date: Optional[str] = None):
         item["rs_rating_smallmid"] = rs_sm
         item["rs_rating_nifty50"] = rs_n50
         results.append(item)
+
+    # Compute Top 10 Composite Scores & Ranks across Step 1 shortlisted stocks
+    top10_ranked = screener_engine.rank_top10_momentum(results, require_vol_confirm=False)
+    top10_map = {x["symbol"]: (x.get("composite_score"), x.get("top10_rank")) for x in top10_ranked}
+    for item in results:
+        sym = item["symbol"]
+        if sym in top10_map:
+            item["composite_score"], item["top10_rank"] = top10_map[sym]
 
     if len(results) < 1500:
         print(f"Skipping cache overwrite: only {len(results)} stocks computed from SQLite (insufficient database history for full universe). Existing cache preserved.")

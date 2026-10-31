@@ -18,6 +18,7 @@ export default function ScreenerTabs({
     { id: 'ath', label: 'All-Time High (ATH)' },
     { id: 'near_52w', label: 'Near 52W High (-10%)' },
     { id: 'recent_listings', label: 'Recent Listings (<2Y)' },
+    { id: 'top10', label: 'Top 10 Momentum' },
     { id: 'all', label: 'All Tracked Stocks' }
   ]
 

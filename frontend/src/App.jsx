@@ -6,7 +6,6 @@ import StockTable from './components/StockTable'
 import StockGrid from './components/StockGrid'
 import ChartModal from './components/ChartModal'
 import CsvUploader from './components/CsvUploader'
-import WhatsAppModal from './components/WhatsAppModal'
 import { CheckCircle2, Info } from 'lucide-react'
 
 export default function App() {
@@ -26,7 +25,6 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [selectedStock, setSelectedStock] = useState(null)
   const [isUploadOpen, setIsUploadOpen] = useState(false)
-  const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false)
   const [scanStatus, setScanStatus] = useState(null)
   const [toast, setToast] = useState(null)
   const [newlyAddedSymbols, setNewlyAddedSymbols] = useState(new Set())
@@ -142,6 +140,20 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (activeTab === 'top10') {
+      setSortField('composite_score')
+      setSortAsc(false)
+      setVolumeConfirmedOnly(false)
+    } else {
+      setVolumeConfirmedOnly(true)
+      if (['composite_score', 'rsi14', 'adx14'].includes(sortField)) {
+        setSortField('vol_multiple')
+        setSortAsc(false)
+      }
+    }
+  }, [activeTab])
+
+  useEffect(() => {
     fetchStocks()
   }, [activeTab, volumeConfirmedOnly, trendOnly, fnoOnly, debouncedSearch])
 
@@ -241,7 +253,6 @@ export default function App() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         onOpenUpload={() => setIsUploadOpen(true)}
-        onOpenWhatsApp={() => setIsWhatsAppOpen(true)}
         onTriggerScan={handleTriggerScan}
         scanStatus={scanStatus}
       />
@@ -309,6 +320,7 @@ export default function App() {
             sortField={sortField}
             sortAsc={sortAsc}
             onSortChange={handleSortChange}
+            activeTab={activeTab}
           />
         ) : (
           <StockGrid
@@ -316,6 +328,7 @@ export default function App() {
             onSelectStock={(sym) => setSelectedStock(sym)}
             selectedSymbol={selectedStock}
             loading={loading}
+            activeTab={activeTab}
           />
         )}
       </main>
@@ -350,15 +363,6 @@ export default function App() {
             fetchStocks()
           }}
           stats={stats}
-        />
-      )}
-
-      {/* WhatsApp Breakout Digest & Alerts Modal */}
-      {isWhatsAppOpen && (
-        <WhatsAppModal
-          isOpen={isWhatsAppOpen}
-          onClose={() => setIsWhatsAppOpen(false)}
-          onShowToast={showToast}
         />
       )}
     </div>
