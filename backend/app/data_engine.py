@@ -25,6 +25,7 @@ BENCHMARK_MIDCAP = "NIFTYMIDCAP150.NS"     # Nifty Midcap 150
 class DataEngine:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
+        self._intraday_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._seed_db_if_needed()
         self._init_db()
@@ -270,5 +271,152 @@ class DataEngine:
             cursor.execute("SELECT MAX(date) FROM daily_candles WHERE symbol NOT LIKE '^%'")
             row = cursor.fetchone()
             return row[0] if (row and row[0]) else None
+
+    def resample_weekly_candles(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Aggregates daily OHLCV candles into Monday-anchored weekly candles."""
+        if df is None or df.empty:
+            return df
+        wdf = df.copy()
+        wdf["dt"] = pd.to_datetime(wdf["date"])
+        wdf = wdf.sort_values("dt")
+        wdf["week_start"] = wdf["dt"] - pd.to_timedelta(wdf["dt"].dt.weekday, unit="D")
+        weekly = (
+            wdf.groupby("week_start", as_index=False)
+            .agg(
+                date=("date", "last"),
+                open=("open", "first"),
+                high=("high", "max"),
+                low=("low", "min"),
+                close=("close", "last"),
+                volume=("volume", "sum"),
+            )
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        return weekly[["date", "open", "high", "low", "close", "volume"]]
+
+    def get_intraday_candles(
+        self,
+        symbol: str,
+        interval: str = "1h",
+        period: str = "6mo",
+        fallback_daily_df: Optional[pd.DataFrame] = None,
+    ) -> Optional[pd.DataFrame]:
+        """
+        Fetches intraday (e.g. 1h) OHLCV candles from yfinance with an in-memory TTL cache.
+        Converts timestamps to IST wall-clock Unix epoch seconds for Lightweight Charts.
+        Falls back to synthesizing 7 hourly candles per session from daily bars if offline.
+        """
+        clean_sym = self._clean_symbol(symbol) if not symbol.startswith("^") else symbol
+        cache_key = f"{clean_sym}:{interval}:{period}"
+        now_ts = time.time()
+
+        cached = self._intraday_cache.get(cache_key)
+        if cached is not None and (now_ts - cached[0]) < 300:
+            return cached[1].copy()
+
+        candidates = [f"{clean_sym}.NS", f"{clean_sym}.BO"] if not clean_sym.startswith("^") else [clean_sym]
+        for yf_ticker in candidates:
+            try:
+                ticker_obj = yf.Ticker(yf_ticker)
+                raw = ticker_obj.history(period=period, interval=interval, auto_adjust=True)
+                if raw is None or raw.empty or len(raw) < 5:
+                    continue
+
+                raw = raw.reset_index()
+                date_col = "Datetime" if "Datetime" in raw.columns else ("Date" if "Date" in raw.columns else raw.columns[0])
+                dt_series = pd.to_datetime(raw[date_col])
+                if dt_series.dt.tz is not None:
+                    dt_series = dt_series.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+
+                raw["time_ts"] = ((dt_series - pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")).astype(np.int64)
+                for col in ["open", "high", "low", "close", "volume"]:
+                    cap = col.capitalize()
+                    raw[col] = raw[cap].astype(float) if cap in raw.columns else raw[col].astype(float)
+
+                clean_df = raw[["time_ts", "open", "high", "low", "close", "volume"]].copy()
+                clean_df = (
+                    clean_df.dropna()
+                    .drop_duplicates(subset=["time_ts"])
+                    .sort_values("time_ts")
+                    .reset_index(drop=True)
+                )
+                if not clean_df.empty:
+                    self._intraday_cache[cache_key] = (now_ts, clean_df)
+                    return clean_df.copy()
+            except Exception as e:
+                logger.warning(f"Intraday ({interval}) fetch failed for {yf_ticker}: {e}")
+
+        # Graceful fallback: synthesize 7 hourly bars (09:15..15:15 IST) per daily session
+        if fallback_daily_df is not None and not fallback_daily_df.empty:
+            daily_tail = fallback_daily_df.tail(90).reset_index(drop=True)
+            rows = []
+            hours_offsets = [
+                9 * 3600 + 15 * 60,
+                10 * 3600 + 15 * 60,
+                11 * 3600 + 15 * 60,
+                12 * 3600 + 15 * 60,
+                13 * 3600 + 15 * 60,
+                14 * 3600 + 15 * 60,
+                15 * 3600 + 15 * 60,
+            ]
+            vol_weights = [0.22, 0.15, 0.12, 0.10, 0.11, 0.13, 0.17]
+            for _, drow in daily_tail.iterrows():
+                base_ts = int((pd.Timestamp(str(drow["date"])) - pd.Timestamp("1970-01-01")) // pd.Timedelta("1s"))
+                o_day = float(drow["open"])
+                h_day = float(drow["high"])
+                l_day = float(drow["low"])
+                c_day = float(drow["close"])
+                v_day = float(drow["volume"])
+                # Smooth intraday waypoints hitting open, low/high, and close
+                if c_day >= o_day:
+                    waypoints = [
+                        o_day,
+                        l_day + 0.25 * (o_day - l_day),
+                        l_day,
+                        o_day + 0.45 * (c_day - o_day),
+                        o_day + 0.70 * (c_day - o_day),
+                        h_day,
+                        h_day - 0.30 * (h_day - c_day),
+                        c_day,
+                    ]
+                else:
+                    waypoints = [
+                        o_day,
+                        h_day - 0.25 * (h_day - o_day),
+                        h_day,
+                        o_day - 0.45 * (o_day - c_day),
+                        o_day - 0.70 * (o_day - c_day),
+                        l_day,
+                        l_day + 0.30 * (c_day - l_day),
+                        c_day,
+                    ]
+                for idx_h in range(7):
+                    ho = waypoints[idx_h]
+                    hc = waypoints[idx_h + 1]
+                    spread = (h_day - l_day) * 0.12
+                    hh = min(h_day, max(ho, hc) + spread * 0.5)
+                    hl = max(l_day, min(ho, hc) - spread * 0.5)
+                    if idx_h == 2 and c_day < o_day:
+                        hh = h_day
+                    if idx_h == 2 and c_day >= o_day:
+                        hl = l_day
+                    if idx_h == 5 and c_day >= o_day:
+                        hh = h_day
+                    if idx_h == 5 and c_day < o_day:
+                        hl = l_day
+                    rows.append({
+                        "time_ts": base_ts + hours_offsets[idx_h],
+                        "open": round(ho, 2),
+                        "high": round(max(hh, ho, hc), 2),
+                        "low": round(min(hl, ho, hc), 2),
+                        "close": round(hc, 2),
+                        "volume": round(v_day * vol_weights[idx_h], 2),
+                    })
+            if rows:
+                synth_df = pd.DataFrame(rows)
+                return synth_df
+
+        return None
 
 data_engine = DataEngine()

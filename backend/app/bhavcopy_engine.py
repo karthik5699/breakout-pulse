@@ -13,6 +13,7 @@ import requests
 from backend.app.models import StockScreenerItem
 from backend.app.universe_store import universe_store
 from backend.app.data_engine import data_engine, DB_PATH, DATA_DIR
+from backend.app.screener_engine import screener_engine
 
 logger = logging.getLogger(__name__)
 CACHE_JSON_PATH = os.path.join(DATA_DIR, "screener_cache.json")
@@ -211,6 +212,17 @@ class BhavcopyEngine:
 
         return None
 
+    def get_latest_cache_date(self) -> Optional[str]:
+        """Returns the latest_data_date recorded in screener_cache.json."""
+        if os.path.exists(CACHE_JSON_PATH):
+            try:
+                with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                    return payload.get("latest_data_date")
+            except Exception:
+                pass
+        return None
+
     def get_latest_recorded_date(self) -> Optional[str]:
         """Returns the latest trade date recorded in SQLite or screener cache."""
         try:
@@ -220,14 +232,7 @@ class BhavcopyEngine:
         except Exception:
             pass
 
-        if os.path.exists(CACHE_JSON_PATH):
-            try:
-                with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                    return payload.get("latest_data_date")
-            except Exception:
-                pass
-        return None
+        return self.get_latest_cache_date()
 
     def sync_daily_market(self) -> Dict[str, Any]:
         """
@@ -249,7 +254,14 @@ class BhavcopyEngine:
         except Exception as e:
             logger.debug(f"F&O list sync skipped: {e}")
 
-        latest_recorded_str = self.get_latest_recorded_date()
+        db_date_str = None
+        try:
+            db_date_str = data_engine.get_latest_data_date()
+        except Exception:
+            pass
+        cache_date_str = self.get_latest_cache_date()
+
+        latest_recorded_str = db_date_str or cache_date_str
         recorded_date = None
         if latest_recorded_str:
             try:
@@ -283,6 +295,15 @@ class BhavcopyEngine:
                 ingested_dates.append(t_date)
                 total_stocks_updated = count
                 latest_ingested_date = t_date
+
+        # If SQLite already had newer trading data than screener_cache.json (e.g. after git pull), sync cache from SQLite
+        if not ingested_dates and db_date_str and (not cache_date_str or db_date_str > cache_date_str):
+            from backend.app.export_seed import export_cache
+            exported_count = export_cache(as_of_date=db_date_str)
+            if exported_count:
+                ingested_dates.append(db_date_str)
+                total_stocks_updated = exported_count
+                latest_ingested_date = db_date_str
 
         current_latest_str = latest_ingested_date or latest_recorded_str or today_str
         try:
@@ -403,6 +424,7 @@ class BhavcopyEngine:
                 # Moving Averages and Stage 2 Trend Check
                 sma50 = item.get("sma50")
                 sma200 = item.get("sma200")
+                sma200_21d_ago = item.get("sma200_21d_ago")
                 sma200_slope = item.get("sma200_slope_60d_pct")
                 n_bars = int(item.get("trading_days") or 500)
                 passes_trend = bool(
@@ -411,7 +433,11 @@ class BhavcopyEngine:
                     and sma200 is not None
                     and new_close > float(sma50)
                     and float(sma50) > float(sma200)
-                    and (sma200_slope is None or float(sma200_slope) >= 0.0)
+                    and n_bars >= 200
+                    and (
+                        (sma200_21d_ago is not None and float(sma200) > float(sma200_21d_ago))
+                        or (sma200_21d_ago is None and (sma200_slope is None or float(sma200_slope) >= 0.0))
+                    )
                 )
 
                 # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
@@ -438,12 +464,12 @@ class BhavcopyEngine:
                 elif not is_above_mas:
                     status = "CONSOLIDATING"
                     status_label = "Consolidating"
-                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
-                    status = "NEAR_ATH"
-                    status_label = "All-Time High (ATH)"
                 elif is_recent and dist_to_52w >= -10.0:
                     status = "RECENT_LISTING"
                     status_label = "Recent Listing (<2Y)"
+                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
+                    status = "NEAR_ATH"
+                    status_label = "All-Time High (ATH)"
                 elif dist_to_52w >= -0.5:
                     status = "AT_52W_HIGH"
                     status_label = "52-Week Breakout"
@@ -472,12 +498,12 @@ class BhavcopyEngine:
 
             item["is_fno"] = universe_store.is_fno(sym)
             item["fno_lot_size"] = universe_store.get_fno_lot_size(sym)
-            item["passes_top10_step1"] = screener_engine.check_top10_step1(item, require_vol_confirm=True)
+            item["passes_top10_step1"] = screener_engine.check_top10_step1(item, require_vol_confirm=False)
             item["composite_score"] = None
             item["top10_rank"] = None
             updated_results.append(item)
 
-        top10_ranked = screener_engine.rank_top10_momentum(updated_results, require_vol_confirm=True)
+        top10_ranked = screener_engine.rank_top10_momentum(updated_results, require_vol_confirm=False)
         top10_map = {x["symbol"]: (x.get("composite_score"), x.get("top10_rank")) for x in top10_ranked}
         for item in updated_results:
             sym = item.get("symbol", "")

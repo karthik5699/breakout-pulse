@@ -654,7 +654,7 @@ class ScreenerEngine:
             roc63=roc63,
             roc126=roc126
         )
-        analysis_obj.passes_top10_step1 = self.check_top10_step1(analysis_obj, require_vol_confirm=True)
+        analysis_obj.passes_top10_step1 = self.check_top10_step1(analysis_obj, require_vol_confirm=False)
         return analysis_obj
 
     def run_screener(
@@ -725,7 +725,7 @@ class ScreenerEngine:
             items.append(item)
 
         # Annotate pre-calculated Top 10 Composite Scores & Ranks on the default shortlist
-        top10_ranked = self.rank_top10_momentum(items, require_vol_confirm=True)
+        top10_ranked = self.rank_top10_momentum(items, require_vol_confirm=False)
         top10_map = {x.symbol: (x.composite_score, x.top10_rank) for x in top10_ranked}
         for it in items:
             if it.symbol in top10_map:

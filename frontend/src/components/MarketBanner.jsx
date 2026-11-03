@@ -132,6 +132,19 @@ export default function MarketBanner({
             </span>
           </div>
 
+          <div className="flex items-center gap-1.5 font-normal">
+            <span>Market Breadth:</span>
+            <span className="font-semibold tabular-nums text-[#16A34A] dark:text-[#22C55E]">
+              +{stats.advances_count ?? 0}
+            </span>
+            <span className="font-semibold tabular-nums text-[#DC2626] dark:text-[#F87171]">
+              -{stats.declines_count ?? 0}
+            </span>
+            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
+              (↑{Number(stats.breadth_up_pct ?? 0).toFixed(1)}%)
+            </span>
+          </div>
+
           {newlyAddedCount > 0 && (
             <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md text-[11px]">
               <Sparkles className="w-3 h-3 fill-amber-500/20" />

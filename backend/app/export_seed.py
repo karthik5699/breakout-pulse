@@ -40,13 +40,28 @@ def export_cache(as_of_date: Optional[str] = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Safeguard: ensure database has sufficient multi-year historical depth
-    # Overwriting the pre-calculated 5-year cache from SQLite requires at least 1,500 stocks with >= 200 trading days
+    # Load existing cache if present so stocks with partial local SQLite history preserve multi-year MAs/52W/ATH
+    existing_cache_map = {}
+    cache_date = None
+    if os.path.exists(OUTPUT_PATH):
+        try:
+            with open(OUTPUT_PATH, "r", encoding="utf-8") as f:
+                existing_payload = json.load(f)
+                cache_date = existing_payload.get("latest_data_date")
+                for prev_item in existing_payload.get("results", []):
+                    s_key = prev_item.get("symbol", "").strip().upper()
+                    if s_key:
+                        existing_cache_map[s_key] = prev_item
+        except Exception as e:
+            print(f"Warning: could not read existing cache at {OUTPUT_PATH}: {e}")
+
+    # Safeguard: ensure database + baseline cache have sufficient multi-year historical depth
     cursor.execute("SELECT COUNT(*) FROM (SELECT symbol FROM daily_candles GROUP BY symbol HAVING COUNT(*) >= 200)")
     mature_row = cursor.fetchone()
     mature_count = mature_row[0] if mature_row else 0
-    if mature_count < 1500:
-        print(f"Skipping cache overwrite: only {mature_count} stocks have >= 200 trading days in SQLite. Full universe history required (>= 1,500 mature stocks). Existing cache preserved.")
+    cached_mature_count = sum(1 for x in existing_cache_map.values() if (x.get("trading_days") or 0) >= 200)
+    if mature_count < 1500 and cached_mature_count < 1500:
+        print(f"Skipping cache overwrite: only {mature_count} stocks have >= 200 trading days in SQLite (and {cached_mature_count} in existing cache). Full universe history required (>= 1,500 mature stocks). Existing cache preserved.")
         conn.close()
         return 0
 
@@ -59,8 +74,9 @@ def export_cache(as_of_date: Optional[str] = None):
         print(f"Warning: could not load stock_ath: {e}")
 
     cursor.execute("SELECT DISTINCT symbol FROM daily_candles")
-    symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
-    print(f"Exporting cache for {len(symbols)} symbols from SQLite as of {as_of_date or 'latest'}...")
+    db_symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
+    all_symbols = sorted(set(db_symbols) | set(existing_cache_map.keys()))
+    print(f"Exporting cache for {len(all_symbols)} symbols from SQLite as of {as_of_date or 'latest'}...")
 
     def load_bench_df(bench_sym):
         if as_of_date:
@@ -86,11 +102,14 @@ def export_cache(as_of_date: Optional[str] = None):
 
     n50_bench = load_bench_df("^NSEI")
 
+    from backend.app.universe_store import universe_store
+
     stock_items = {}
     stock_dfs = {}
     latest_date_overall = as_of_date or "2026-08-25"
 
-    for sym in symbols:
+    for sym in all_symbols:
+        prev = existing_cache_map.get(sym)
         if as_of_date:
             cursor.execute(
                 "SELECT date, open, high, low, close, volume FROM daily_candles WHERE symbol = ? AND date <= ? ORDER BY date ASC",
@@ -103,6 +122,14 @@ def export_cache(as_of_date: Optional[str] = None):
             )
         rows = cursor.fetchall()
         if not rows or len(rows) < 15:
+            if prev:
+                preserved = dict(prev)
+                preserved["is_fno"] = universe_store.is_fno(sym)
+                preserved["fno_lot_size"] = universe_store.get_fno_lot_size(sym)
+                preserved["passes_top10_step1"] = screener_engine.check_top10_step1(preserved, require_vol_confirm=False)
+                preserved["composite_score"] = None
+                preserved["top10_rank"] = None
+                stock_items[sym] = preserved
             continue
 
         n_bars = len(rows)
@@ -115,6 +142,9 @@ def export_cache(as_of_date: Optional[str] = None):
 
         if dates[-1] > latest_date_overall:
             latest_date_overall = dates[-1]
+
+        new_sessions = sum(1 for d in dates if d > cache_date) if (prev and cache_date) else 0
+        effective_bars = max(n_bars, int(prev.get("trading_days") or 0) + new_sessions) if prev else n_bars
 
         current_price = closes[-1]
         prev_close = closes[-2] if n_bars >= 2 else opens[-1]
@@ -140,21 +170,39 @@ def export_cache(as_of_date: Optional[str] = None):
         # Require >= 15 active non-zero trading days and >= ₹25 Lakhs/day turnover
         passes_liquidity = bool(active_days >= 15 and turnover_cr >= 0.25)
 
-        # Highs
-        high_ath = max(max(highs), stock_aths.get(sym, 0.0))
-        w52_bars = min(n_bars, 252)
-        high_52w = max(highs[-w52_bars:])
-        low_52w = min(lows[-w52_bars:])
+        # Highs (preserve multi-year 52W/ATH when local SQLite has < 252 bars)
+        prev_ath = float(prev.get("high_ath") or 0.0) if prev else 0.0
+        high_ath = max(max(highs), stock_aths.get(sym, 0.0), prev_ath)
+        if n_bars >= 252:
+            high_52w = max(highs[-252:])
+            low_52w = min(lows[-252:])
+        else:
+            prev_52h = float(prev.get("high_52w") or 0.0) if prev else 0.0
+            prev_52l = float(prev.get("low_52w") or 0.0) if prev else 0.0
+            high_52w = max(max(highs), prev_52h)
+            low_52w = min(min(lows), prev_52l) if prev_52l > 0 else min(lows)
 
         # Distances
         dist_to_52w = round(((current_price - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
         dist_to_ath = round(((current_price - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
 
+        def _resolve_ma(window: int) -> Optional[float]:
+            if n_bars >= window:
+                return sum(closes[-window:]) / float(window)
+            if prev and prev.get(f"sma{window}") is not None:
+                val = float(prev[f"sma{window}"])
+                if cache_date:
+                    for d_val, c_val in zip(dates, closes):
+                        if d_val > cache_date:
+                            val = val + (c_val - val) / float(window)
+                return val
+            return None
+
         # Moving Averages (require full window so short-history stocks don't get fake MAs)
-        sma20 = (sum(closes[-20:]) / 20.0) if n_bars >= 20 else None
-        sma50 = (sum(closes[-50:]) / 50.0) if n_bars >= 50 else None
-        sma100 = (sum(closes[-100:]) / 100.0) if n_bars >= 100 else None
-        sma200 = (sum(closes[-200:]) / 200.0) if n_bars >= 200 else None
+        sma20 = _resolve_ma(20)
+        sma50 = _resolve_ma(50)
+        sma100 = _resolve_ma(100)
+        sma200 = _resolve_ma(200)
 
         sma200_slope_60d_pct = None
         if n_bars >= 260 and sma200 is not None:
@@ -165,6 +213,8 @@ def export_cache(as_of_date: Optional[str] = None):
             sma200_prev = sum(closes[:200]) / 200.0
             if sma200_prev > 0:
                 sma200_slope_60d_pct = round(((sma200 - sma200_prev) / sma200_prev) * 100.0, 2)
+        elif prev and prev.get("sma200_slope_60d_pct") is not None:
+            sma200_slope_60d_pct = float(prev["sma200_slope_60d_pct"])
 
         # Volume Multiple: Require >= 5,000 shares for confirmed institutional volume
         vol_50_bars = min(n_bars, 50)
@@ -180,13 +230,15 @@ def export_cache(as_of_date: Optional[str] = None):
                 dt = datetime.strptime(list_date_str, "%d-%b-%Y")
                 is_recent = (datetime.now() - dt).days <= 730
             except Exception:
-                is_recent = False
+                is_recent = bool(prev.get("is_recently_listed", False)) if prev else False
+        elif prev and prev.get("is_recently_listed") is not None:
+            is_recent = bool(prev.get("is_recently_listed"))
 
         # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
         is_above_mas = True
         if sma50 is not None and current_price < sma50:
             is_above_mas = False
-        if sma200 is not None and current_price < sma200:
+        if sma200 is not None and effective_bars >= 200 and current_price < sma200:
             is_above_mas = False
 
         # Status categorization:
@@ -199,7 +251,7 @@ def export_cache(as_of_date: Optional[str] = None):
         elif is_recent and dist_to_52w >= -10.0:
             status = "RECENT_LISTING"
             status_label = "Recent Listing (<2Y)"
-        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
+        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and effective_bars >= 500:
             status = "NEAR_ATH"
             status_label = "All-Time High (ATH)"
         elif dist_to_52w >= -0.5:
@@ -217,6 +269,25 @@ def export_cache(as_of_date: Optional[str] = None):
         roc21, roc63, roc126 = screener_engine.compute_roc_metrics(closes)
         sma200_21d_ago, days_above_ma50_20d, r2_63d = screener_engine.compute_persistence_and_smoothness(closes)
 
+        if prev:
+            # Find reference close on cache_date to compound 63d/126d ROC when local SQLite has < 64/127 bars
+            c_ref = None
+            if cache_date and cache_date in dates:
+                c_ref = closes[dates.index(cache_date)]
+            elif prev.get("current_price"):
+                c_ref = float(prev["current_price"])
+
+            if n_bars < 64 and prev.get("roc63") is not None and c_ref and c_ref > 0:
+                roc63 = round(((current_price / float(c_ref)) * (1.0 + float(prev["roc63"]) / 100.0) - 1.0) * 100.0, 2)
+            if n_bars < 127 and prev.get("roc126") is not None and c_ref and c_ref > 0:
+                roc126 = round(((current_price / float(c_ref)) * (1.0 + float(prev["roc126"]) / 100.0) - 1.0) * 100.0, 2)
+            if n_bars < 221 and prev.get("sma200_21d_ago") is not None:
+                sma200_21d_ago = float(prev["sma200_21d_ago"])
+            if n_bars < 50 and sma50 is not None:
+                days_above_ma50_20d = int(sum(1 for c_val in closes[-min(20, n_bars):] if c_val > sma50))
+            if n_bars < 63 and prev.get("r2_63d") is not None:
+                r2_63d = float(prev["r2_63d"])
+
         # Stage 2 Trend Check: Price > 50 SMA, 50 SMA > 200 SMA, and rising 200 SMA (MA200 > MA200[21])
         passes_trend = bool(
             passes_liquidity
@@ -224,12 +295,11 @@ def export_cache(as_of_date: Optional[str] = None):
             and sma200 is not None
             and current_price > sma50
             and sma50 > sma200
-            and n_bars >= 200
+            and effective_bars >= 200
             and (sma200_21d_ago is None or sma200 > sma200_21d_ago)
         )
 
-        from backend.app.universe_store import universe_store
-        name = stock_names.get(sym, sym)
+        name = stock_names.get(sym) or (prev.get("name") if prev else sym) or sym
 
         item = {
             "symbol": sym,
@@ -246,17 +316,17 @@ def export_cache(as_of_date: Optional[str] = None):
             "high_ath": round(high_ath, 2),
             "dist_to_52w_high_pct": dist_to_52w,
             "dist_to_ath_pct": dist_to_ath,
-            "rs_rating_smallmid": 50,
-            "rs_rating_nifty50": 50,
+            "rs_rating_smallmid": int(prev.get("rs_rating_smallmid", 50)) if prev else 50,
+            "rs_rating_nifty50": int(prev.get("rs_rating_nifty50", 50)) if prev else 50,
             "turnover_cr": turnover_cr,
             "active_days_20d": active_days,
-            "trading_days": n_bars,
+            "trading_days": effective_bars,
             "is_recently_listed": is_recent,
             "sma20": round(sma20, 2) if sma20 is not None else None,
             "sma50": round(sma50, 2) if sma50 is not None else None,
             "sma100": round(sma100, 2) if sma100 is not None else None,
             "sma200": round(sma200, 2) if sma200 is not None else None,
-            "sma200_21d_ago": sma200_21d_ago,
+            "sma200_21d_ago": round(sma200_21d_ago, 2) if sma200_21d_ago is not None else None,
             "sma200_slope_60d_pct": sma200_slope_60d_pct,
             "days_above_ma50_20d": days_above_ma50_20d,
             "r2_63d": r2_63d,
@@ -275,7 +345,16 @@ def export_cache(as_of_date: Optional[str] = None):
             "top10_rank": None
         }
         item["passes_top10_step1"] = screener_engine.check_top10_step1(item, require_vol_confirm=False)
-        stock_dfs[sym] = pd.DataFrame({"close": closes})
+        if n_bars >= 127:
+            stock_dfs[sym] = pd.DataFrame({"close": closes})
+        elif roc63 is not None and roc126 is not None and current_price > 0:
+            # Provide synthetic 127-bar series matching exact 3M (roc63) and 6M (roc126) returns for RS ranking
+            c63 = current_price / (1.0 + roc63 / 100.0) if (1.0 + roc63 / 100.0) > 0 else current_price
+            c126 = current_price / (1.0 + roc126 / 100.0) if (1.0 + roc126 / 100.0) > 0 else c63
+            synth_closes = [c126] * 64 + [c63] * 62 + [current_price]
+            stock_dfs[sym] = pd.DataFrame({"close": synth_closes})
+        else:
+            stock_dfs[sym] = pd.DataFrame({"close": closes})
         stock_items[sym] = item
 
     conn.close()
@@ -285,9 +364,10 @@ def export_cache(as_of_date: Optional[str] = None):
 
     results = []
     for sym, item in stock_items.items():
-        rs_sm, rs_n50 = rs_ratings.get(sym, (50, 50))
-        item["rs_rating_smallmid"] = rs_sm
-        item["rs_rating_nifty50"] = rs_n50
+        if sym in rs_ratings:
+            rs_sm, rs_n50 = rs_ratings[sym]
+            item["rs_rating_smallmid"] = rs_sm
+            item["rs_rating_nifty50"] = rs_n50
         results.append(item)
 
     # Compute Top 10 Composite Scores & Ranks across Step 1 shortlisted stocks

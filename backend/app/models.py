@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 class StockMeta(BaseModel):
     symbol: str
@@ -14,7 +14,7 @@ class StockMeta(BaseModel):
     fno_lot_size: Optional[int] = None
 
 class Candle(BaseModel):
-    time: str          # YYYY-MM-DD
+    time: Union[int, str]  # YYYY-MM-DD for 1D/1W, or Unix epoch seconds (int) for 1H
     open: float
     high: float
     low: float
@@ -133,6 +133,10 @@ class UniverseStats(BaseModel):
     confirmed_volume_count: int
     top10_count: Optional[int] = 0
     fno_count: Optional[int] = 0
+    advances_count: Optional[int] = 0
+    declines_count: Optional[int] = 0
+    unchanged_count: Optional[int] = 0
+    breadth_up_pct: Optional[float] = 0.0
     last_scanned: Optional[str] = None
     latest_data_date: Optional[str] = None
     smallmid_trend: Optional[str] = None

@@ -248,7 +248,16 @@ def get_universe_stats():
             n50_trend = "Consolidating / Below 50 SMA"
 
     total_cached = len(results) or len(data_engine.get_all_cached_symbols())
-    latest_date = data_engine.get_latest_data_date() or scan_state.get("latest_data_date", "2026-08-25")
+    db_date = data_engine.get_latest_data_date()
+    cache_date = scan_state.get("latest_data_date")
+    date_candidates = [d for d in (db_date, cache_date) if d]
+    latest_date = max(date_candidates) if date_candidates else "2026-08-25"
+
+    advances = sum(1 for x in results if (x.change_pct or 0.0) > 0)
+    declines = sum(1 for x in results if (x.change_pct or 0.0) < 0)
+    unchanged = sum(1 for x in results if (x.change_pct or 0.0) == 0)
+    breadth_total = len(results)
+    breadth_up_pct = round((advances / breadth_total) * 100.0, 1) if breadth_total > 0 else 0.0
 
     vc_stage2_symbols = [
         x.symbol for x in results
@@ -265,6 +274,10 @@ def get_universe_stats():
         confirmed_volume_count=confirmed_vol,
         top10_count=top10_count,
         fno_count=fno_total,
+        advances_count=advances,
+        declines_count=declines,
+        unchanged_count=unchanged,
+        breadth_up_pct=breadth_up_pct,
         last_scanned=scan_state.get("last_scanned"),
         latest_data_date=latest_date,
         smallmid_trend=sm_trend,
@@ -344,11 +357,16 @@ def get_screened_stocks(
 
 
 @app.get("/api/stocks/{symbol}/chart", response_model=ChartPayload)
-def get_stock_chart(symbol: str, response: Response):
+def get_stock_chart(
+    symbol: str,
+    response: Response,
+    timeframe: str = Query("1D", description="Candle timeframe: 1H, 1D, or 1W"),
+):
     import numpy as np
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
 
+    tf = (timeframe or "1D").strip().upper()
     clean_sym = symbol.strip().upper().replace(".NS", "")
     df = data_engine.get_cached_candles(clean_sym)
     
@@ -400,26 +418,76 @@ def get_stock_chart(symbol: str, response: Response):
     turnover_cr = round(float(turnover_sma_val) / 1e7, 2) if (pd.notna(turnover_sma_val) and not np.isnan(turnover_sma_val)) else 0.0
 
     candles = []
-    for _, row in computed_df.iterrows():
-        o = float(row["open"]) if pd.notna(row["open"]) and not np.isnan(row["open"]) else c_last
-        h = float(row["high"]) if pd.notna(row["high"]) and not np.isnan(row["high"]) else max(o, c_last)
-        l = float(row["low"]) if pd.notna(row["low"]) and not np.isnan(row["low"]) else min(o, c_last)
-        c = float(row["close"]) if pd.notna(row["close"]) and not np.isnan(row["close"]) else o
-        v = float(row["volume"]) if pd.notna(row["volume"]) and not np.isnan(row["volume"]) else 0.0
-
-        h = max(h, o, c)
-        l = min(l, o, c)
-
-        candles.append(
-            Candle(
-                time=str(row["date_str"]),
-                open=round(o, 2),
-                high=round(h, 2),
-                low=round(l, 2),
-                close=round(c, 2),
-                volume=round(v, 2)
-            )
+    if tf == "1H":
+        intraday_df = data_engine.get_intraday_candles(
+            clean_sym, interval="1h", period="6mo", fallback_daily_df=computed_df
         )
+        if intraday_df is not None and not intraday_df.empty:
+            for _, row in intraday_df.iterrows():
+                o = float(row["open"]) if pd.notna(row["open"]) and not np.isnan(row["open"]) else c_last
+                h = float(row["high"]) if pd.notna(row["high"]) and not np.isnan(row["high"]) else max(o, c_last)
+                l = float(row["low"]) if pd.notna(row["low"]) and not np.isnan(row["low"]) else min(o, c_last)
+                c = float(row["close"]) if pd.notna(row["close"]) and not np.isnan(row["close"]) else o
+                v = float(row["volume"]) if pd.notna(row["volume"]) and not np.isnan(row["volume"]) else 0.0
+
+                h = max(h, o, c)
+                l = min(l, o, c)
+
+                candles.append(
+                    Candle(
+                        time=int(row["time_ts"]),
+                        open=round(o, 2),
+                        high=round(h, 2),
+                        low=round(l, 2),
+                        close=round(c, 2),
+                        volume=round(v, 2),
+                    )
+                )
+
+    elif tf == "1W":
+        weekly_df = data_engine.resample_weekly_candles(computed_df)
+        for _, row in weekly_df.iterrows():
+            o = float(row["open"]) if pd.notna(row["open"]) and not np.isnan(row["open"]) else c_last
+            h = float(row["high"]) if pd.notna(row["high"]) and not np.isnan(row["high"]) else max(o, c_last)
+            l = float(row["low"]) if pd.notna(row["low"]) and not np.isnan(row["low"]) else min(o, c_last)
+            c = float(row["close"]) if pd.notna(row["close"]) and not np.isnan(row["close"]) else o
+            v = float(row["volume"]) if pd.notna(row["volume"]) and not np.isnan(row["volume"]) else 0.0
+
+            h = max(h, o, c)
+            l = min(l, o, c)
+
+            candles.append(
+                Candle(
+                    time=str(row["date"]),
+                    open=round(o, 2),
+                    high=round(h, 2),
+                    low=round(l, 2),
+                    close=round(c, 2),
+                    volume=round(v, 2),
+                )
+            )
+
+    if not candles:
+        for _, row in computed_df.iterrows():
+            o = float(row["open"]) if pd.notna(row["open"]) and not np.isnan(row["open"]) else c_last
+            h = float(row["high"]) if pd.notna(row["high"]) and not np.isnan(row["high"]) else max(o, c_last)
+            l = float(row["low"]) if pd.notna(row["low"]) and not np.isnan(row["low"]) else min(o, c_last)
+            c = float(row["close"]) if pd.notna(row["close"]) and not np.isnan(row["close"]) else o
+            v = float(row["volume"]) if pd.notna(row["volume"]) and not np.isnan(row["volume"]) else 0.0
+
+            h = max(h, o, c)
+            l = min(l, o, c)
+
+            candles.append(
+                Candle(
+                    time=str(row["date_str"]),
+                    open=round(o, 2),
+                    high=round(h, 2),
+                    low=round(l, 2),
+                    close=round(c, 2),
+                    volume=round(v, 2)
+                )
+            )
 
     return ChartPayload(
         symbol=clean_sym,
