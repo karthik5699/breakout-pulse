@@ -1,5 +1,32 @@
 import React from 'react'
-import { Crown, Target, Flame, Sparkles, Calendar, Trophy, ShieldCheck, Layers, LayoutGrid, List } from 'lucide-react'
+import { Download } from 'lucide-react'
+
+const TAB_HEADINGS = {
+  ath: 'All-time high breakouts',
+  near_52w: '52-week high setups',
+  recent_listings: 'Recent listing breakouts',
+  top10: 'Top 10 momentum leaders',
+  all: 'All tracked NSE equities',
+}
+
+function formatDataDate(dateStr) {
+  if (dateStr && typeof dateStr === 'string' && dateStr.includes('-')) {
+    const parts = dateStr.split('-')
+    if (parts.length === 3) {
+      const [y, m, d] = parts
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const monthName = months[parseInt(m, 10) - 1] || m
+      return `${parseInt(d, 10)} ${monthName} ${y}`
+    }
+  }
+  return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function formatRegimeLabel(label, trendText) {
+  if (!trendText) return `${label} tracking`
+  const lower = trendText.toLowerCase()
+  return lower.includes('bullish') ? `${label} above 50 DMA` : `${label} below 50 DMA`
+}
 
 export default function MarketBanner({
   stats,
@@ -12,234 +39,282 @@ export default function MarketBanner({
   setTrendOnly,
   fnoOnly,
   setFnoOnly,
+  minRs = 0,
+  setMinRs,
+  watchlistOnly = false,
+  setWatchlistOnly,
+  watchlistCount = 0,
+  displayedCount = 0,
+  onExportTradingView,
   viewMode,
-  setViewMode
+  setViewMode,
 }) {
   if (!stats) return null
 
-  const cards = [
+  const isTop10Tab = activeTab === 'top10'
+  const pageTitle = TAB_HEADINGS[activeTab] || TAB_HEADINGS.ath
+  const breadthUpPct = Math.max(0, Math.min(100, Number(stats.breadth_up_pct ?? 0)))
+
+  const tabs = [
     {
       id: 'ath',
-      label: 'All-Time High (ATH)',
-      sub: 'Within ±10% of ATH',
-      count: stats.near_ath_count || 0,
-      icon: Crown
+      label: 'All-time high',
+      count: stats.filtered_near_ath_count ?? stats.near_ath_count ?? 0,
+      total: stats.near_ath_count ?? 0,
     },
     {
       id: 'near_52w',
-      label: 'Near 52W High',
-      sub: 'Within -10% of 52W High',
-      count: stats.near_52w_count || 0,
-      icon: Target
+      label: '52-week high',
+      count: stats.filtered_near_52w_count ?? stats.near_52w_count ?? 0,
+      total: stats.near_52w_count ?? 0,
     },
     {
       id: 'recent_listings',
-      label: 'Recent Listings',
-      sub: 'Near Highs (< 2Y History)',
-      count: stats.recent_listing_count || 0,
-      icon: Sparkles
+      label: 'Recent listings',
+      count: stats.filtered_recent_listing_count ?? stats.recent_listing_count ?? 0,
+      total: stats.recent_listing_count ?? 0,
     },
     {
       id: 'top10',
-      label: 'Top 10 Momentum',
-      sub: 'Stacked MA • ADX > 25 • RSI 55–75',
-      count: stats.top10_count || 0,
-      icon: Trophy
-    }
+      label: 'Top 10 momentum',
+      count: stats.filtered_top10_count ?? stats.top10_count ?? 0,
+      total: stats.top10_count ?? 0,
+    },
+    {
+      id: 'all',
+      label: 'All tracked',
+      count: stats.filtered_all_count ?? stats.cached_stocks ?? stats.total_stocks ?? 0,
+      total: stats.cached_stocks ?? stats.total_stocks ?? 0,
+    },
   ]
 
-  const formatDataDate = (dateStr) => {
-    if (dateStr && typeof dateStr === 'string' && dateStr.includes('-')) {
-      const parts = dateStr.split('-')
-      if (parts.length === 3) {
-        const [y, m, d] = parts
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        const monthName = months[parseInt(m, 10) - 1] || m
-        return `${parseInt(d, 10)} ${monthName} ${y}`
-      }
-    }
-    const today = new Date()
-    return today.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-  }
-
   return (
-    <div className="mb-5 space-y-4">
-      {/* Compact 4-Column Primary View Switcher Row */}
-      <div
-        className="grid gap-3.5"
-        style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
+    <div className="mb-1">
+      {/* Page Title & Inline Typographic Market Pulse */}
+      <section
+        aria-label="Screener heading and NSE market breadth"
+        className="flex items-baseline justify-between gap-x-5 gap-y-1.5 flex-wrap mb-2.5"
       >
-        {cards.map((c) => {
-          const Icon = c.icon
-          const isActive = activeTab === c.id
+        <h1 className="font-display text-[24px] sm:text-[26px] font-bold tracking-[-0.03em] leading-[1.15] text-[var(--ink)] m-0">
+          {pageTitle}
+        </h1>
+
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-[var(--ink-muted)] max-w-full">
+          <span className="font-medium text-[var(--ink)]">
+            NSE close {formatDataDate(stats.latest_data_date)}
+          </span>
+          {stats.nifty50_trend && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span title={`Nifty 50: ${stats.nifty50_trend}`}>
+                {formatRegimeLabel('Nifty 50', stats.nifty50_trend)}
+              </span>
+            </>
+          )}
+          {stats.smallmid_trend && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span title={`SmallMid 250: ${stats.smallmid_trend}`}>
+                {formatRegimeLabel('SmallMid 250', stats.smallmid_trend)}
+              </span>
+            </>
+          )}
+          {newlyAddedCount > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-[var(--accent)] font-medium tabular-nums">
+                {newlyAddedCount} new qualified
+              </span>
+            </>
+          )}
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-2">
+            <span>
+              Breadth{' '}
+              <span className="text-[var(--up)] font-semibold tabular-nums">
+                {(stats.advances_count ?? 0).toLocaleString('en-IN')} up
+              </span>{' '}
+              /{' '}
+              <span className="text-[var(--down)] font-semibold tabular-nums">
+                {(stats.declines_count ?? 0).toLocaleString('en-IN')} down
+              </span>{' '}
+              ({breadthUpPct.toFixed(1)}%)
+            </span>
+            <span
+              className="w-16 h-1.5 bg-[var(--down)] rounded-[2px] overflow-hidden shrink-0 inline-block"
+              title={`${breadthUpPct.toFixed(1)}% advancing stocks`}
+            >
+              <span
+                className="block h-full bg-[var(--up)]"
+                style={{ width: `${breadthUpPct}%` }}
+              />
+            </span>
+          </span>
+        </div>
+      </section>
+
+      {/* Connected Horizontal Index Tab Rail */}
+      <nav
+        aria-label="Screener categories"
+        className="flex items-stretch gap-5 sm:gap-6 border-b border-[var(--border)] overflow-x-auto no-scrollbar max-w-full"
+      >
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id
           return (
             <button
-              key={c.id}
-              onClick={() => setActiveTab(c.id)}
-              className={`px-4 py-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 ${
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              title={
+                tab.count !== tab.total
+                  ? `${tab.count.toLocaleString('en-IN')} matching filters out of ${tab.total.toLocaleString('en-IN')} in ${tab.label}`
+                  : `${tab.count.toLocaleString('en-IN')} stocks in ${tab.label}`
+              }
+              className={`inline-flex items-baseline gap-2 py-2.5 px-0.5 border-b-2 -mb-px whitespace-nowrap cursor-pointer bp-transition ${
                 isActive
-                  ? 'bg-white dark:bg-[#161D27] border-[#8069BF] shadow-xs ring-1 ring-[#8069BF]/30'
-                  : 'bg-white dark:bg-[#111827] border-[#E5E7EB] dark:border-[#1F2937] hover:border-[#8069BF]/40'
+                  ? 'border-[var(--accent)] text-[var(--ink)]'
+                  : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
               }`}
             >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold tracking-tight tabular-nums text-[#111827] dark:text-[#F9FAFB] leading-none">
-                    {c.count}
-                  </span>
-                  <span className={`text-xs font-semibold truncate ${
-                    isActive ? 'text-[#111827] dark:text-[#F9FAFB]' : 'text-[#6B7280] dark:text-[#9CA3AF]'
-                  }`}>
-                    {c.label}
-                  </span>
-                </div>
-                <div className="text-[11px] text-[#6B7280] dark:text-[#9CA3AF] mt-1 font-normal truncate">
-                  {c.sub}
-                </div>
-              </div>
-
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                isActive
-                  ? 'bg-[#8069BF]/15 text-[#8069BF]'
-                  : 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#6B7280] dark:text-[#9CA3AF]'
-              }`}>
-                <Icon className="w-3.5 h-3.5" />
-              </div>
+              <span className={`text-[14px] ${isActive ? 'font-semibold' : 'font-medium'}`}>
+                {tab.label}
+              </span>
+              <span
+                className={`font-display text-[18px] font-bold tracking-[-0.02em] tabular-nums ${
+                  isActive ? 'text-[var(--accent)]' : 'text-[var(--ink-muted)]'
+                }`}
+              >
+                {Number(tab.count).toLocaleString('en-IN')}
+              </span>
             </button>
           )
         })}
-      </div>
+      </nav>
 
-      {/* Unified Market Metadata & Filter Controls Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-white dark:bg-[#111827] rounded-xl border border-[#E5E7EB] dark:border-[#1F2937] text-xs text-[#6B7280] dark:text-[#9CA3AF]">
-        <div className="flex items-center gap-3.5 flex-wrap">
-          {/* Latest Data Date */}
-          <div className="flex items-center gap-1.5 font-normal">
-            <Calendar className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span>Latest Data:</span>
-            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-              {formatDataDate(stats.latest_data_date)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 font-normal">
-            <Flame className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span>
-              <strong className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-                {stats.confirmed_volume_count || 0}
-              </strong>{' '}
-              Vol Confirmed
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 font-normal">
-            <span>Market Breadth:</span>
-            <span className="font-semibold tabular-nums text-[#16A34A] dark:text-[#22C55E]">
-              +{stats.advances_count ?? 0}
-            </span>
-            <span className="font-semibold tabular-nums text-[#DC2626] dark:text-[#F87171]">
-              -{stats.declines_count ?? 0}
-            </span>
-            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-              (↑{Number(stats.breadth_up_pct ?? 0).toFixed(1)}%)
-            </span>
-          </div>
-
-          {newlyAddedCount > 0 && (
-            <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md text-[11px]">
-              <Sparkles className="w-3 h-3 fill-amber-500/20" />
-              <span>
-                <strong className="font-semibold tabular-nums">{newlyAddedCount}</strong> New Joined
-              </span>
-            </div>
-          )}
-
-          <button
-            onClick={() => setActiveTab(activeTab === 'all' ? 'ath' : 'all')}
-            className={`px-2 py-0.5 rounded-md text-[11px] transition-colors cursor-pointer ${
-              activeTab === 'all'
-                ? 'bg-[#8069BF]/15 text-[#8069BF] dark:text-[#A78BFA] font-semibold ring-1 ring-[#8069BF]/30'
-                : 'hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-            }`}
-            title="Click to view all tracked NSE stocks"
+      {/* Non-Button Filter Switch Bar & Segmented View Toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-y-2.5 gap-x-4 py-2.5 min-h-[46px] max-w-full">
+        <div
+          role="group"
+          aria-label="Screener filters"
+          className="flex items-center gap-4 sm:gap-[18px] min-w-0 max-w-full overflow-x-auto no-scrollbar"
+        >
+          <label
+            className="bp-switch"
+            title="Require today's volume to be at least 1.4x the 50-day average"
           >
-            Universe:{' '}
-            <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB]">
-              {stats.total_stocks}
-            </span>{' '}
-            tracked
-          </button>
+            <input
+              type="checkbox"
+              checked={volumeConfirmedOnly}
+              onChange={(e) => setVolumeConfirmedOnly(e.target.checked)}
+            />
+            <span className="bp-switch-track">
+              <span className="bp-switch-thumb" />
+            </span>
+            <span className="bp-switch-text">Volume ≥ 1.4×</span>
+          </label>
+
+          <label
+            className={`bp-switch ${isTop10Tab ? 'is-disabled' : ''}`}
+            title={
+              isTop10Tab
+                ? 'Stage 2 stacked moving average alignment is always required on Top 10 momentum'
+                : 'Require Stage 2 uptrend above 50 and 200 DMA'
+            }
+          >
+            <input
+              type="checkbox"
+              disabled={isTop10Tab}
+              checked={isTop10Tab ? true : trendOnly}
+              onChange={(e) => setTrendOnly(e.target.checked)}
+            />
+            <span className="bp-switch-track">
+              <span className="bp-switch-thumb" />
+            </span>
+            <span className="bp-switch-text">Stage 2 trend</span>
+          </label>
+
+          <label
+            className="bp-switch"
+            title="Filter only official NSE Futures and Options securities"
+          >
+            <input
+              type="checkbox"
+              checked={fnoOnly}
+              onChange={(e) => setFnoOnly(e.target.checked)}
+            />
+            <span className="bp-switch-track">
+              <span className="bp-switch-thumb" />
+            </span>
+            <span className="bp-switch-text">F&amp;O only</span>
+          </label>
+
+          <label
+            className="bp-switch"
+            title="Require Relative Strength rating of 80 or higher"
+          >
+            <input
+              type="checkbox"
+              checked={minRs >= 80}
+              onChange={(e) => setMinRs && setMinRs(e.target.checked ? 80 : 0)}
+            />
+            <span className="bp-switch-track">
+              <span className="bp-switch-thumb" />
+            </span>
+            <span className="bp-switch-text">RS ≥ 80</span>
+          </label>
+
+          <label
+            className="bp-switch"
+            title="Show only starred watchlist symbols"
+          >
+            <input
+              type="checkbox"
+              checked={watchlistOnly}
+              onChange={(e) => setWatchlistOnly && setWatchlistOnly(e.target.checked)}
+            />
+            <span className="bp-switch-track">
+              <span className="bp-switch-thumb" />
+            </span>
+            <span className="bp-switch-text">
+              Watchlist ({watchlistCount})
+            </span>
+          </label>
         </div>
 
-        {/* Filter Controls & View Switcher */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Volume Confirmed Toggle */}
-          <button
-            onClick={() => setVolumeConfirmedOnly(!volumeConfirmedOnly)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-all border cursor-pointer ${
-              volumeConfirmedOnly
-                ? 'bg-[#16A34A]/10 dark:bg-[#22C55E]/15 text-[#16A34A] dark:text-[#22C55E] font-semibold border-[#16A34A]/30'
-                : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-            }`}
-            title="Toggle Volume Confirmation (>= 1.4x 50-day average volume)"
-          >
-            <Flame className={`w-3.5 h-3.5 ${volumeConfirmedOnly ? 'text-[#16A34A] dark:text-[#22C55E]' : 'text-[#9CA3AF]'}`} />
-            <span>Volume Confirmed</span>
-          </button>
-
-          {/* Stage 2 Trend Filter Toggle */}
-          <button
-            onClick={() => setTrendOnly(!trendOnly)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-all border cursor-pointer ${
-              trendOnly
-                ? 'bg-[#F3F4F6] dark:bg-[#1F2937] text-[#111827] dark:text-[#F9FAFB] font-semibold border-[#D1D5DB] dark:border-[#374151]'
-                : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-            }`}
-            title="Filter only stocks with Price > 50 > 200 SMA and Rising 200 SMA"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span>Stage 2 Trend</span>
-          </button>
-
-          {/* F&O Filter Toggle */}
-          <button
-            onClick={() => setFnoOnly(!fnoOnly)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-all border cursor-pointer ${
-              fnoOnly
-                ? 'bg-[#8069BF]/15 text-[#8069BF] dark:text-[#A78BFA] font-semibold border-[#8069BF]/40'
-                : 'bg-transparent text-[#6B7280] dark:text-[#9CA3AF] border-[#E5E7EB] dark:border-[#374151] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-            }`}
-            title="Filter only official NSE Futures & Options (F&O) stocks"
-          >
-            <Layers className={`w-3.5 h-3.5 ${fnoOnly ? 'text-[#8069BF] dark:text-[#A78BFA]' : 'text-[#9CA3AF]'}`} />
-            <span>F&O Only</span>
-          </button>
-
-          {/* View Switcher (Table vs Grid) */}
-          <div className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-lg">
+        <div className="inline-flex items-center gap-3.5 shrink-0">
+          <div className="bp-segmented" role="group" aria-label="Workspace layout">
             <button
-              onClick={() => setViewMode('table')}
-              className={`p-1 rounded-md transition-colors cursor-pointer ${
-                viewMode === 'table'
-                  ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-bold'
-                  : 'text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-              }`}
-              aria-label="Table View"
+              type="button"
+              onClick={() => setViewMode('split')}
+              aria-pressed={viewMode === 'split'}
+              className={`bp-seg-btn ${viewMode === 'split' ? 'is-active' : ''}`}
             >
-              <List className="w-3.5 h-3.5" />
+              Split
             </button>
             <button
-              onClick={() => setViewMode('grid')}
-              className={`p-1 rounded-md transition-colors cursor-pointer ${
-                viewMode === 'grid'
-                  ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-bold'
-                  : 'text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-              }`}
-              aria-label="Grid View"
+              type="button"
+              onClick={() => setViewMode('table')}
+              aria-pressed={viewMode === 'table'}
+              className={`bp-seg-btn ${viewMode === 'table' ? 'is-active' : ''}`}
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
+              Table
             </button>
           </div>
+
+          <button
+            type="button"
+            disabled={displayedCount === 0}
+            onClick={onExportTradingView}
+            title="Export displayed symbols for TradingView watchlist import (.txt)"
+            className={`inline-flex items-center gap-1.5 px-1.5 py-1 rounded-[4px] text-[13px] font-medium bp-transition ${
+              displayedCount === 0
+                ? 'text-[var(--ink-muted)] opacity-40 cursor-not-allowed'
+                : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-subtle)] cursor-pointer'
+            }`}
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>Export TV</span>
+          </button>
         </div>
       </div>
     </div>

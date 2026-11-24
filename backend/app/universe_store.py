@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 import os
+import io
 import csv
 import json
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional
 import requests
 from backend.app.models import StockMeta
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger(__name__)
 
@@ -141,12 +145,14 @@ class UniverseStore:
             os.makedirs(os.path.dirname(self.fno_json_path), exist_ok=True)
             payload = {
                 "source": url,
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "last_updated": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
                 "count": len(fno_entries),
                 "stocks": fno_entries
             }
-            with open(self.fno_json_path, mode="w", encoding="utf-8") as f:
+            tmp_fno = f"{self.fno_json_path}.tmp"
+            with open(tmp_fno, mode="w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            os.replace(tmp_fno, self.fno_json_path)
 
             self.load_fno()
             self.load()
@@ -191,17 +197,67 @@ class UniverseStore:
                 )
 
     def save_csv_content(self, csv_text: str) -> int:
-        """Overwrites the persistent CSV file with new uploaded content and reloads."""
+        """Atomically overwrites the persistent CSV file with new uploaded content and reloads."""
         os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
-        with open(self.csv_path, mode="w", encoding="utf-8") as f:
+        tmp_path = f"{self.csv_path}.tmp"
+        with open(tmp_path, mode="w", encoding="utf-8") as f:
             f.write(csv_text)
+        os.replace(tmp_path, self.csv_path)
         self.load()
         return len(self._stocks)
 
     def save_uploaded_csv(self, lines: List[str], overwrite: bool = True) -> int:
-        """Handles uploaded CSV lines from API, persists and reloads."""
+        """Handles uploaded CSV lines from API, supporting overwrite or merge by SYMBOL."""
         csv_text = "\n".join(lines) if isinstance(lines, list) else str(lines)
-        return self.save_csv_content(csv_text)
+        if overwrite or not os.path.exists(self.csv_path):
+            return self.save_csv_content(csv_text)
+
+        merged: Dict[str, Dict[str, str]] = {}
+        ordered_fields: List[str] = []
+
+        def _ingest_reader(reader: csv.DictReader) -> int:
+            count = 0
+            if reader.fieldnames:
+                for fn in reader.fieldnames:
+                    clean_fn = fn.strip().lstrip("\ufeff")
+                    if clean_fn and clean_fn not in ordered_fields:
+                        ordered_fields.append(clean_fn)
+            for row in reader:
+                cleaned = {
+                    k.strip().lstrip("\ufeff"): (v or "").strip()
+                    for k, v in row.items()
+                    if k is not None and not isinstance(v, list)
+                }
+                sym = cleaned.get("SYMBOL", "").strip().upper()
+                if not sym:
+                    continue
+                cleaned["SYMBOL"] = sym
+                if sym in merged:
+                    existing = merged[sym]
+                    for k, v in cleaned.items():
+                        if v != "" or k not in existing:
+                            existing[k] = v
+                else:
+                    merged[sym] = cleaned
+                count += 1
+            return count
+
+        with open(self.csv_path, mode="r", encoding="utf-8-sig") as f:
+            _ingest_reader(csv.DictReader(f))
+
+        uploaded_count = _ingest_reader(csv.DictReader(io.StringIO(csv_text)))
+
+        if "SYMBOL" not in ordered_fields:
+            ordered_fields.insert(0, "SYMBOL")
+
+        out_buf = io.StringIO()
+        writer = csv.DictWriter(out_buf, fieldnames=ordered_fields, extrasaction="ignore", lineterminator="\n")
+        writer.writeheader()
+        for row_dict in merged.values():
+            writer.writerow({k: row_dict.get(k, "") for k in ordered_fields})
+
+        self.save_csv_content(out_buf.getvalue())
+        return uploaded_count
 
     def get_all(self) -> List[StockMeta]:
         return list(self._stocks.values())

@@ -1,10 +1,9 @@
-import sqlite3
 import json
 import os
-import math
 import sys
 from typing import Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if PROJECT_ROOT not in sys.path:
@@ -12,7 +11,9 @@ if PROJECT_ROOT not in sys.path:
 
 import pandas as pd
 from backend.app.screener_engine import screener_engine
+from backend.app.data_engine import data_engine, sanitize_and_adjust_candles
 
+IST = ZoneInfo("Asia/Kolkata")
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DB_PATH = os.path.join(DATA_DIR, "market_data.db")
 CSV_PATH = os.path.join(DATA_DIR, "nse_universe.csv")
@@ -21,7 +22,10 @@ OUTPUT_PATH = os.path.join(DATA_DIR, "screener_cache.json")
 def export_cache(as_of_date: Optional[str] = None):
     if not os.path.exists(DB_PATH):
         print("No market_data.db found to export.")
-        return
+        return 0
+
+    if as_of_date is None:
+        as_of_date = data_engine.get_latest_complete_data_date()
 
     # Load universe names and listing dates
     stock_names = {}
@@ -37,7 +41,7 @@ def export_cache(as_of_date: Optional[str] = None):
                     stock_names[sym] = cleaned.get("NAME OF COMPANY", sym).strip()
                     stock_listing_dates[sym] = cleaned.get("DATE OF LISTING", "").strip()
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = data_engine._connect()
     cursor = conn.cursor()
 
     # Load existing cache if present so stocks with partial local SQLite history preserve multi-year MAs/52W/ATH
@@ -65,18 +69,33 @@ def export_cache(as_of_date: Optional[str] = None):
         conn.close()
         return 0
 
-    # Load verified lifetime ATHs from stock_ath table
+    # Load verified lifetime ATHs and dates from stock_ath table
     stock_aths = {}
+    stock_ath_dates = {}
     try:
-        cursor.execute("SELECT symbol, ath_price FROM stock_ath")
-        stock_aths = {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
+        cursor.execute("SELECT symbol, ath_price, ath_date FROM stock_ath")
+        for r in cursor.fetchall():
+            if r[1] is not None:
+                stock_aths[r[0]] = float(r[1])
+                stock_ath_dates[r[0]] = r[2]
     except Exception as e:
         print(f"Warning: could not load stock_ath: {e}")
 
+    # Symbols with verified full max-history split-adjusted ATH in ticker_status
+    ok_max_symbols = set()
+    try:
+        cursor.execute("SELECT symbol FROM ticker_status WHERE status = 'OK_MAX'")
+        ok_max_symbols = {r[0] for r in cursor.fetchall()}
+    except Exception as e:
+        print(f"Warning: could not load ticker_status OK_MAX: {e}")
+
     cursor.execute("SELECT DISTINCT symbol FROM daily_candles")
     db_symbols = [r[0] for r in cursor.fetchall() if not r[0].startswith("^")]
-    all_symbols = sorted(set(db_symbols) | set(existing_cache_map.keys()))
-    print(f"Exporting cache for {len(all_symbols)} symbols from SQLite as of {as_of_date or 'latest'}...")
+    if stock_names:
+        all_symbols = sorted(stock_names.keys())
+    else:
+        all_symbols = sorted(set(db_symbols) | set(existing_cache_map.keys()))
+    print(f"Exporting cache for {len(all_symbols)} tracked symbols from SQLite as of {as_of_date or 'latest'}...")
 
     def load_bench_df(bench_sym):
         if as_of_date:
@@ -140,39 +159,71 @@ def export_cache(as_of_date: Optional[str] = None):
         closes = [r[4] for r in rows]
         volumes = [r[5] for r in rows]
 
+        dates, opens, highs, lows, closes, volumes, adj_factor, action_date = sanitize_and_adjust_candles(
+            dates, opens, highs, lows, closes, volumes
+        )
+
+        raw_db_ath = stock_aths.get(sym, 0.0)
+        db_ath_val = raw_db_ath
+        db_ath_adjusted = False
+        if adj_factor != 1.0:
+            san_max_h = max(highs) if highs else 0.0
+            if sym in stock_aths:
+                ath_dt = stock_ath_dates.get(sym)
+                if (
+                    not action_date
+                    or not ath_dt
+                    or ath_dt < action_date
+                    or (san_max_h > 0 and adj_factor < 0.60 and db_ath_val > san_max_h * 1.45)
+                ):
+                    db_ath_val = db_ath_val * adj_factor
+                    db_ath_adjusted = True
+
+            if prev:
+                prev_h52 = float(prev.get("high_52w") or 0.0)
+                needs_full_scale = not cache_date or (action_date and action_date > cache_date)
+                needs_hist_field_scale = (
+                    not needs_full_scale
+                    and san_max_h > 0
+                    and (
+                        (adj_factor < 0.60 and prev_h52 > san_max_h * 1.45)
+                        or (adj_factor > 1.45 and prev_h52 > 0 and prev_h52 < san_max_h * 0.65)
+                    )
+                )
+                prev = dict(prev)
+                if needs_full_scale or needs_hist_field_scale:
+                    scale_fields = (
+                        ("current_price", "high_52w", "low_52w", "high_ath", "sma20", "sma50", "sma100", "sma200", "sma200_21d_ago")
+                        if needs_full_scale
+                        else ("high_52w", "low_52w", "high_ath", "sma20", "sma50", "sma100", "sma200", "sma200_21d_ago")
+                    )
+                    for fld in scale_fields:
+                        if prev.get(fld) is not None:
+                            prev[fld] = float(prev[fld]) * adj_factor
+                elif db_ath_adjusted and prev.get("high_ath") is not None and raw_db_ath > 0:
+                    prev_ath_f = float(prev["high_ath"])
+                    if prev_ath_f >= raw_db_ath * 0.98:
+                        prev["high_ath"] = prev_ath_f * adj_factor
+
         if dates[-1] > latest_date_overall:
             latest_date_overall = dates[-1]
 
         new_sessions = sum(1 for d in dates if d > cache_date) if (prev and cache_date) else 0
-        effective_bars = max(n_bars, int(prev.get("trading_days") or 0) + new_sessions) if prev else n_bars
+        effective_bars = max(n_bars, int(prev.get("trading_days") if (prev and prev.get("trading_days") is not None) else 0) + new_sessions) if prev else n_bars
 
         current_price = closes[-1]
         prev_close = closes[-2] if n_bars >= 2 else opens[-1]
         change_pct = round(((current_price - prev_close) / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
 
-        # Liquidity Check (last 20 days)
-        last_20_vols = volumes[-min(20, n_bars):]
-        last_20_closes = closes[-min(20, n_bars):]
-        active_days = sum(1 for v in last_20_vols if v > 0)
-        
-        turnovers_20 = [c * v for c, v in zip(last_20_closes, last_20_vols)]
-        if len(turnovers_20) > 5:
-            sorted_t20 = sorted(turnovers_20)
-            # Exclude single highest 1-day outlier spike if it is > 4x the rest of the 20-day mean
-            rest_mean = sum(sorted_t20[:-1]) / (len(sorted_t20) - 1)
-            if sorted_t20[-1] > 4.0 * rest_mean:
-                turnover_cr = round(rest_mean / 1e7, 2)
-            else:
-                turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2)
+        # Canonical Liquidity Check (last 20 days)
+        active_days, turnover_cr, passes_liquidity = screener_engine.compute_liquidity(closes, volumes)
+
+        # Highs (preserve multi-year 52W/ATH when local SQLite has < 252 bars, but trust verified OK_MAX ATH)
+        if sym in ok_max_symbols:
+            high_ath = max(max(highs), db_ath_val)
         else:
-            turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2) if turnovers_20 else 0.0
-
-        # Require >= 15 active non-zero trading days and >= ₹25 Lakhs/day turnover
-        passes_liquidity = bool(active_days >= 15 and turnover_cr >= 0.25)
-
-        # Highs (preserve multi-year 52W/ATH when local SQLite has < 252 bars)
-        prev_ath = float(prev.get("high_ath") or 0.0) if prev else 0.0
-        high_ath = max(max(highs), stock_aths.get(sym, 0.0), prev_ath)
+            prev_ath = float(prev.get("high_ath") or 0.0) if prev else 0.0
+            high_ath = max(max(highs), db_ath_val, prev_ath)
         if n_bars >= 252:
             high_52w = max(highs[-252:])
             low_52w = min(lows[-252:])
@@ -216,53 +267,25 @@ def export_cache(as_of_date: Optional[str] = None):
         elif prev and prev.get("sma200_slope_60d_pct") is not None:
             sma200_slope_60d_pct = float(prev["sma200_slope_60d_pct"])
 
-        # Volume Multiple: Require >= 5,000 shares for confirmed institutional volume
+        # Canonical Volume Confirmation
         vol_50_bars = min(n_bars, 50)
         vol_sma50 = sum(volumes[-vol_50_bars:]) / vol_50_bars if vol_50_bars > 0 else 1.0
-        vol_multiple = round(volumes[-1] / vol_sma50, 2) if vol_sma50 > 0 else 1.0
-        is_vol_confirmed = bool(passes_liquidity and vol_multiple >= 1.4 and volumes[-1] >= 5000)
+        vol_multiple, is_vol_confirmed = screener_engine.compute_volume_confirmation(
+            volumes[-1], vol_sma50, passes_liquidity
+        )
 
-        # Determine genuine recent listing from official exchange listing date
+        # Determine genuine recent listing relative to latest candle date
+        ref_dt = datetime.strptime(dates[-1], "%Y-%m-%d")
         is_recent = False
         list_date_str = stock_listing_dates.get(sym)
         if list_date_str:
             try:
                 dt = datetime.strptime(list_date_str, "%d-%b-%Y")
-                is_recent = (datetime.now() - dt).days <= 730
+                is_recent = (ref_dt - dt).days <= 730
             except Exception:
                 is_recent = bool(prev.get("is_recently_listed", False)) if prev else False
         elif prev and prev.get("is_recently_listed") is not None:
             is_recent = bool(prev.get("is_recently_listed"))
-
-        # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
-        is_above_mas = True
-        if sma50 is not None and current_price < sma50:
-            is_above_mas = False
-        if sma200 is not None and effective_bars >= 200 and current_price < sma200:
-            is_above_mas = False
-
-        # Status categorization:
-        if not passes_liquidity:
-            status = "ILLIQUID"
-            status_label = "Illiquid / Inactive"
-        elif not is_above_mas:
-            status = "CONSOLIDATING"
-            status_label = "Consolidating"
-        elif is_recent and dist_to_52w >= -10.0:
-            status = "RECENT_LISTING"
-            status_label = "Recent Listing (<2Y)"
-        elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and effective_bars >= 500:
-            status = "NEAR_ATH"
-            status_label = "All-Time High (ATH)"
-        elif dist_to_52w >= -0.5:
-            status = "AT_52W_HIGH"
-            status_label = "52-Week Breakout"
-        elif dist_to_52w >= -10.0:
-            status = "NEAR_52W_HIGH"
-            status_label = "Near 52W High"
-        else:
-            status = "CONSOLIDATING"
-            status_label = "Consolidating"
 
         # Top 10 Momentum Oscillators, ROC, Persistence & Smoothness Metrics
         rsi14, adx14, atr14_pct = screener_engine.compute_wilder_oscillators(highs, lows, closes, period=14)
@@ -277,9 +300,9 @@ def export_cache(as_of_date: Optional[str] = None):
             elif prev.get("current_price"):
                 c_ref = float(prev["current_price"])
 
-            if n_bars < 64 and prev.get("roc63") is not None and c_ref and c_ref > 0:
+            if adj_factor == 1.0 and n_bars < 64 and prev.get("roc63") is not None and c_ref and c_ref > 0:
                 roc63 = round(((current_price / float(c_ref)) * (1.0 + float(prev["roc63"]) / 100.0) - 1.0) * 100.0, 2)
-            if n_bars < 127 and prev.get("roc126") is not None and c_ref and c_ref > 0:
+            if adj_factor == 1.0 and n_bars < 127 and prev.get("roc126") is not None and c_ref and c_ref > 0:
                 roc126 = round(((current_price / float(c_ref)) * (1.0 + float(prev["roc126"]) / 100.0) - 1.0) * 100.0, 2)
             if n_bars < 221 and prev.get("sma200_21d_ago") is not None:
                 sma200_21d_ago = float(prev["sma200_21d_ago"])
@@ -288,15 +311,26 @@ def export_cache(as_of_date: Optional[str] = None):
             if n_bars < 63 and prev.get("r2_63d") is not None:
                 r2_63d = float(prev["r2_63d"])
 
-        # Stage 2 Trend Check: Price > 50 SMA, 50 SMA > 200 SMA, and rising 200 SMA (MA200 > MA200[21])
-        passes_trend = bool(
-            passes_liquidity
-            and sma50 is not None
-            and sma200 is not None
-            and current_price > sma50
-            and sma50 > sma200
-            and effective_bars >= 200
-            and (sma200_21d_ago is None or sma200 > sma200_21d_ago)
+        # Canonical Stage 2 Trend Check & Status Classification
+        passes_trend, _ = screener_engine.check_stage2_trend(
+            price=current_price,
+            sma20=sma20,
+            sma50=sma50,
+            sma200=sma200,
+            sma200_21d_ago=sma200_21d_ago,
+            sma200_slope_60d_pct=sma200_slope_60d_pct,
+            trading_days=effective_bars,
+            passes_liquidity=passes_liquidity,
+            is_recently_listed=is_recent,
+        )
+        above_mas = screener_engine.is_above_mas(current_price, sma50, sma200, effective_bars)
+        status, status_label = screener_engine.classify_status(
+            dist_52w=dist_to_52w,
+            dist_ath=dist_to_ath,
+            trading_days=effective_bars,
+            is_recent=is_recent,
+            passes_liquidity=passes_liquidity,
+            is_above_mas=above_mas,
         )
 
         name = stock_names.get(sym) or (prev.get("name") if prev else sym) or sym
@@ -383,14 +417,16 @@ def export_cache(as_of_date: Optional[str] = None):
         return 0
 
     payload = {
-        "last_scanned": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "last_scanned": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
         "latest_data_date": latest_date_overall,
         "total_cached": len(results),
         "results": results
     }
 
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+    tmp_output = f"{OUTPUT_PATH}.tmp"
+    with open(tmp_output, "w", encoding="utf-8") as f:
         json.dump(payload, f)
+    os.replace(tmp_output, OUTPUT_PATH)
 
     print(f"Successfully generated {OUTPUT_PATH} with {len(results)} stocks!")
     return len(results)

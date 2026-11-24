@@ -16,12 +16,12 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend and data
 COPY backend/ ./backend/
-COPY data/ ./data/
 
 # Copy built frontend assets
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 8000
 ENV PORT=8000
+ENV TZ=Asia/Kolkata
 
 CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

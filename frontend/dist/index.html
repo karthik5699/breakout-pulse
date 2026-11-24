@@ -2,16 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'><rect width='32' height='32' rx='8' fill='%238069BF'/><path d='M5 22L10 10L15 19L19 13L23 16L27 6' stroke='%23FFFFFF' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><rect x='2' y='2' width='20' height='20' rx='5' fill='%231648D8'/><path d='M6.5 14.5L10.2 10.8L13.1 13.4L17.5 8.5' stroke='%23FFFFFF' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/><path d='M14.5 8.5H17.5V11.5' stroke='%23FFFFFF' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/></svg>"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BreakoutPulse — 52W High & ATH Momentum Screener</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/assets/index-Dgw0AYAi.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CaC5ZZN6.css">
+    <title>BreakoutPulse · NSE Momentum Screener</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var p = new URLSearchParams(window.location.search);
+          var qt = p.get('theme');
+          var saved = localStorage.getItem('bp_theme');
+          var active = qt === 'dark' || qt === 'light' ? qt : saved === 'dark' ? 'dark' : 'light';
+          if (active === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-BKOurZ1K.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BZLHGeRg.css">
   </head>
-  <body class="bg-white dark:bg-[#0B0F17] text-[#111827] dark:text-[#F9FAFB] font-sans antialiased selection:bg-[#8069BF]/20 selection:text-[#8069BF] dark:selection:bg-[#8069BF]/30 dark:selection:text-[#F9FAFB]">
+  <body class="bg-[var(--bg)] text-[var(--ink)] font-sans antialiased">
     <div id="root"></div>
   </body>
 </html>

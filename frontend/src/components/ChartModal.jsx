@@ -1,27 +1,88 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useId } from 'react'
 import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts'
-import { X, ChevronUp, ChevronDown } from 'lucide-react'
+import { X, ChevronUp, ChevronDown, Star, Calculator, AlertTriangle, RotateCcw } from 'lucide-react'
+import RiskCalculator from './RiskCalculator'
 
 const TIMEFRAMES = ['1H', '1D', '1W']
 
-export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose, theme }) {
+export default function ChartModal({
+  symbol,
+  stocks = [],
+  onSelectStock,
+  onClose,
+  theme,
+  watchlist = new Set(),
+  onToggleWatchlist,
+}) {
+  const dialogRef = useRef(null)
   const chartContainerRef = useRef(null)
   const rsiContainerRef = useRef(null)
   const chartRef = useRef(null)
   const rsiChartRef = useRef(null)
   const candleDataRef = useRef([])
   const cacheRef = useRef({})
+  const titleId = useId()
 
   const [activeRange, setActiveRange] = useState('1D')
-  const [data, setData] = useState(null)
+  const [fetched, setFetched] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [fetchNonce, setFetchNonce] = useState(0)
   const [legendData, setLegendData] = useState(null)
+  const [showRiskCalc, setShowRiskCalc] = useState(true)
+  const [overlays, setOverlays] = useState({
+    sma20: false,
+    sma50: true,
+    sma200: true,
+    volSma50: true,
+    highs: true,
+  })
 
   const isDark = theme === 'dark'
+  const isWatchlisted = watchlist.has(symbol)
   const currentIndex = stocks.findIndex((s) => s.symbol === symbol)
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex !== -1 && currentIndex < stocks.length - 1
+
+  const activeData =
+    fetched && fetched.symbol === symbol && fetched.timeframe === activeRange
+      ? fetched.payload
+      : null
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (!dialog.open) {
+      dialog.showModal()
+    }
+  }, [])
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if ('closedBy' in HTMLDialogElement.prototype) return
+
+    const outside = (e) => {
+      const r = dialog.getBoundingClientRect()
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom
+    }
+    let pressedOutside = false
+    const onPointerDown = (e) => {
+      pressedOutside = outside(e)
+    }
+    const onPointerUp = (e) => {
+      if (pressedOutside && outside(e)) {
+        dialog.close()
+      }
+      pressedOutside = false
+    }
+    dialog.addEventListener('pointerdown', onPointerDown)
+    dialog.addEventListener('pointerup', onPointerUp)
+    return () => {
+      dialog.removeEventListener('pointerdown', onPointerDown)
+      dialog.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [])
 
   const handlePrevStock = () => {
     if (hasPrev && onSelectStock) {
@@ -42,30 +103,21 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
     if (!ch || !cData || cData.length === 0) return
 
     let bars = 252
-    if (rangeKey === '1H') bars = 140      // ~20 trading sessions of 1-hour bars initially visible
-    else if (rangeKey === '1D') bars = 252 // ~1 year of daily bars initially visible
-    else if (rangeKey === '1W') bars = 156 // ~3 years of weekly bars initially visible
+    if (rangeKey === '1H') bars = 140
+    else if (rangeKey === '1D') bars = 252
+    else if (rangeKey === '1W') bars = 156
 
     const count = Math.min(bars, cData.length)
     const fromIndex = Math.max(0, cData.length - count)
-    const toIndex = cData.length - 1 + 5 // right offset padding
+    const toIndex = cData.length - 1 + 5
 
-    const logicalRange = {
-      from: fromIndex,
-      to: toIndex,
-    }
+    const logicalRange = { from: fromIndex, to: toIndex }
     ch.timeScale().setVisibleLogicalRange(logicalRange)
     if (rCh) {
       rCh.timeScale().setVisibleLogicalRange(logicalRange)
     }
   }
 
-  const handleRangeChange = (r) => {
-    if (r === activeRange) return
-    setActiveRange(r)
-  }
-
-  // Handle Escape key to close and Arrow keys to navigate stocks in current screened list
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
@@ -77,10 +129,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
         return
       }
 
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
         if (hasNext && onSelectStock) {
           e.preventDefault()
           onSelectStock(stocks[currentIndex + 1].symbol)
@@ -94,85 +143,97 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, hasNext, hasPrev, currentIndex, stocks, onSelectStock])
+  }, [hasNext, hasPrev, currentIndex, stocks, onSelectStock])
 
   useEffect(() => {
-    let isMounted = true
     const cacheKey = `${symbol}:${activeRange}`
-    if (cacheRef.current[cacheKey]) {
-      setData(cacheRef.current[cacheKey])
+    if (fetchNonce === 0 && cacheRef.current[cacheKey]) {
+      setFetched({ symbol, timeframe: activeRange, payload: cacheRef.current[cacheKey] })
       setLoading(false)
       setError(null)
       return
     }
 
+    const controller = new AbortController()
     setLoading(true)
     setError(null)
 
     fetch(
       `/api/stocks/${encodeURIComponent(symbol)}/chart?timeframe=${encodeURIComponent(activeRange)}`,
-      { cache: 'no-store' }
+      { cache: 'no-store', signal: controller.signal }
     )
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`)
+        if (!res.ok) throw new Error(`Failed to load chart (HTTP ${res.status})`)
         return res.json()
       })
       .then((payload) => {
-        if (isMounted) {
+        if (!controller.signal.aborted) {
           cacheRef.current[cacheKey] = payload
-          setData(payload)
+          setFetched({ symbol, timeframe: activeRange, payload })
           setLoading(false)
         }
       })
       .catch((err) => {
-        if (isMounted) {
-          setError(err.message)
+        if (err.name !== 'AbortError' && !controller.signal.aborted) {
+          setError(err.message || 'Could not load chart data.')
           setLoading(false)
         }
       })
 
-    return () => {
-      isMounted = false
-    }
-  }, [symbol, activeRange])
+    return () => controller.abort()
+  }, [symbol, activeRange, fetchNonce])
 
-  // Initialize and update Lightweight Charts (Main Chart + Synchronized RSI 14 Pane)
   useEffect(() => {
-    if (!data || !chartContainerRef.current || !rsiContainerRef.current) return
+    if (!activeData || !chartContainerRef.current || !rsiContainerRef.current) {
+      setLegendData(null)
+      return
+    }
 
     const container = chartContainerRef.current
     const rsiContainer = rsiContainerRef.current
     container.innerHTML = ''
     rsiContainer.innerHTML = ''
 
+    const surfaceColor = isDark ? '#0D1721' : '#FFFFFF'
+    const textColor = isDark ? '#8FA4B8' : '#525B55'
+    const gridColor = isDark ? '#162636' : '#ECEEE9'
+    const borderColor = isDark ? '#1C2E40' : '#E0E3DD'
+    const upColor = isDark ? '#25C281' : '#0E7A4D'
+    const downColor = isDark ? '#F25C69' : '#C42536'
+    const upVolColor = isDark ? 'rgba(37, 194, 129, 0.36)' : 'rgba(14, 122, 77, 0.32)'
+    const downVolColor = isDark ? 'rgba(242, 92, 105, 0.36)' : 'rgba(196, 37, 54, 0.32)'
+    const sma50Color = isDark ? '#558BFF' : '#1648D8'
+    const sma200Color = isDark ? '#E5A032' : '#B45309'
+    const sma20Color = isDark ? '#2DD4BF' : '#0F766E'
+    const athColor = isDark ? '#8FA4B8' : '#525B55'
+
     const isHourly = activeRange === '1H'
     const sharedLayout = {
-      background: { type: ColorType.Solid, color: isDark ? '#111827' : '#ffffff' },
-      textColor: isDark ? '#9CA3AF' : '#6B7280',
+      background: { type: ColorType.Solid, color: surfaceColor },
+      textColor,
       fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      fontSize: 13,
     }
     const sharedGrid = {
       vertLines: { visible: false },
-      horzLines: { color: isDark ? '#1F2937' : '#F3F4F6' },
+      horzLines: { color: gridColor },
     }
 
     try {
       const chart = createChart(container, {
         autoSize: true,
         width: container.clientWidth || 800,
-        height: container.clientHeight || 350,
+        height: container.clientHeight || 360,
         layout: sharedLayout,
         grid: sharedGrid,
-        crosshair: {
-          mode: CrosshairMode.Normal,
-        },
+        crosshair: { mode: CrosshairMode.Normal },
         rightPriceScale: {
-          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          borderColor,
           scaleMargins: { top: 0.08, bottom: 0.22 },
-          minimumWidth: 72,
+          minimumWidth: 74,
         },
         timeScale: {
-          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          borderColor,
           visible: false,
           timeVisible: isHourly,
           secondsVisible: false,
@@ -185,19 +246,17 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
       const rsiChart = createChart(rsiContainer, {
         autoSize: true,
         width: rsiContainer.clientWidth || 800,
-        height: rsiContainer.clientHeight || 140,
-        layout: sharedLayout,
+        height: rsiContainer.clientHeight || 135,
+        layout: { ...sharedLayout, attributionLogo: false },
         grid: sharedGrid,
-        crosshair: {
-          mode: CrosshairMode.Normal,
-        },
+        crosshair: { mode: CrosshairMode.Normal },
         rightPriceScale: {
-          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          borderColor,
           scaleMargins: { top: 0.1, bottom: 0.1 },
-          minimumWidth: 72,
+          minimumWidth: 74,
         },
         timeScale: {
-          borderColor: isDark ? '#1F2937' : '#E5E7EB',
+          borderColor,
           visible: true,
           timeVisible: isHourly,
           secondsVisible: false,
@@ -210,19 +269,15 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
       chartRef.current = chart
       rsiChartRef.current = rsiChart
 
-      // 1. Candlestick Series - Emerald (#10B981) / Red (#EF4444)
-      const upColor = '#10B981'
-      const downColor = '#EF4444'
-
       const candleSeries = chart.addCandlestickSeries({
-        upColor: upColor,
-        downColor: downColor,
+        upColor,
+        downColor,
         borderVisible: false,
         wickUpColor: upColor,
         wickDownColor: downColor,
       })
 
-      const rawCandles = data.candles || []
+      const rawCandles = activeData.candles || []
       const filteredRaw = rawCandles.filter(
         (c) =>
           c &&
@@ -245,111 +300,138 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
         candleSeries.setData(candleData)
       }
 
-      // 2. 50-period SMA Line: Sky Blue (#38BDF8), Solid 2px
       const closes = candleData.map((c) => c.close)
-      const sma50Data = []
-      const sma50Map = new Map()
+      const prevCloseMap = new Map()
       for (let i = 0; i < candleData.length; i++) {
-        if (i >= 49) {
-          const slice = closes.slice(i - 49, i + 1)
-          const avg = slice.reduce((a, b) => a + b, 0) / 50
-          sma50Data.push({ time: candleData[i].time, value: avg })
-          sma50Map.set(candleData[i].time, avg)
-        }
-      }
-      let sma50Series = null
-      if (sma50Data.length > 0) {
-        sma50Series = chart.addLineSeries({
-          color: '#38BDF8',
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          title: '',
-        })
-        sma50Series.setData(sma50Data)
+        prevCloseMap.set(candleData[i].time, i > 0 ? candleData[i - 1].close : candleData[i].open)
       }
 
-      // 3. 200-period SMA Line: Amber/Orange (#F97316), Solid 2px
-      const sma200Data = []
-      const sma200Map = new Map()
-      for (let i = 0; i < candleData.length; i++) {
-        if (i >= 199) {
-          const slice = closes.slice(i - 199, i + 1)
-          const avg = slice.reduce((a, b) => a + b, 0) / 200
-          sma200Data.push({ time: candleData[i].time, value: avg })
-          sma200Map.set(candleData[i].time, avg)
+      const computeSmaSeries = (period) => {
+        const seriesData = []
+        const map = new Map()
+        for (let i = period - 1; i < candleData.length; i++) {
+          let sum = 0
+          for (let j = i - (period - 1); j <= i; j++) sum += closes[j]
+          const avg = sum / period
+          seriesData.push({ time: candleData[i].time, value: avg })
+          map.set(candleData[i].time, avg)
         }
-      }
-      let sma200Series = null
-      if (sma200Data.length > 0) {
-        sma200Series = chart.addLineSeries({
-          color: '#F97316',
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          title: '',
-        })
-        sma200Series.setData(sma200Data)
+        return { seriesData, map }
       }
 
-      // 4. All-Time High Line: Gold/Yellow (#FACC15), Dashed 1.5px
-      const highAthNum = Number(data.high_ath)
-      if (!isNaN(highAthNum) && highAthNum > 0) {
-        candleSeries.createPriceLine({
-          price: highAthNum,
-          color: '#FACC15',
+      const { seriesData: sma20Data, map: sma20Map } = computeSmaSeries(20)
+      if (overlays.sma20 && sma20Data.length > 0) {
+        const s20 = chart.addLineSeries({
+          color: sma20Color,
           lineWidth: 1.5,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'ATH',
+          lineStyle: LineStyle.Solid,
+          title: '',
         })
+        s20.setData(sma20Data)
       }
 
-      // 5. 52-Week High Line: Purple (#A855F7), Dotted 1.5px (Omit if 52W High == ATH)
-      const high52wNum = Number(data.high_52w)
-      const isSameHigh =
+      const { seriesData: sma50Data, map: sma50Map } = computeSmaSeries(50)
+      if (overlays.sma50 && sma50Data.length > 0) {
+        const s50 = chart.addLineSeries({
+          color: sma50Color,
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          title: '',
+        })
+        s50.setData(sma50Data)
+      }
+
+      const { seriesData: sma200Data, map: sma200Map } = computeSmaSeries(200)
+      if (overlays.sma200 && sma200Data.length > 0) {
+        const s200 = chart.addLineSeries({
+          color: sma200Color,
+          lineWidth: 2,
+          lineStyle: LineStyle.Solid,
+          title: '',
+        })
+        s200.setData(sma200Data)
+      }
+
+      const highAthNum = Number(activeData.high_ath)
+      const high52wNum = Number(activeData.high_52w)
+      const sameHigh =
         !isNaN(high52wNum) &&
         !isNaN(highAthNum) &&
         highAthNum > 0 &&
         Math.abs(high52wNum - highAthNum) / highAthNum < 0.005
-      if (!isNaN(high52wNum) && high52wNum > 0 && !isSameHigh) {
-        candleSeries.createPriceLine({
-          price: high52wNum,
-          color: '#A855F7',
-          lineWidth: 1.5,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: '52W H',
-        })
+
+      if (overlays.highs) {
+        if (!isNaN(highAthNum) && highAthNum > 0) {
+          candleSeries.createPriceLine({
+            price: highAthNum,
+            color: athColor,
+            lineWidth: 1.5,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'ATH',
+          })
+        }
+        if (!isNaN(high52wNum) && high52wNum > 0 && !sameHigh) {
+          candleSeries.createPriceLine({
+            price: high52wNum,
+            color: sma50Color,
+            lineWidth: 1.5,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: '52W H',
+          })
+        }
       }
 
-      // 6. Volume Histogram Series (Occupy lower 18% of main chart)
       const volumeSeries = chart.addHistogramSeries({
         priceFormat: { type: 'volume' },
         priceScaleId: 'volume',
         lastValueVisible: false,
         priceLineVisible: false,
       })
-
       chart.priceScale('volume').applyOptions({
         scaleMargins: { top: 0.82, bottom: 0.0 },
         borderVisible: false,
       })
 
       const volumeMap = new Map()
+      const rawVolumes = []
       const volumeData = candleData.map((c, idx) => {
         const rawVol = Number(filteredRaw[idx]?.volume)
         const volVal = !isNaN(rawVol) ? rawVol : 0
         volumeMap.set(c.time, volVal)
+        rawVolumes.push(volVal)
         return {
           time: c.time,
           value: volVal,
-          color: c.close >= c.open ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)',
+          color: c.close >= c.open ? upVolColor : downVolColor,
         }
       })
       if (volumeData.length > 0) {
         volumeSeries.setData(volumeData)
       }
 
-      // 7. Wilder's RSI(14) Series in Dedicated Bottom Sub-Pane
+      if (overlays.volSma50 && rawVolumes.length >= 20) {
+        const volMaWin = Math.min(50, rawVolumes.length)
+        const volSmaData = []
+        for (let i = 0; i < rawVolumes.length; i++) {
+          const start = Math.max(0, i - volMaWin + 1)
+          let sum = 0
+          for (let j = start; j <= i; j++) sum += rawVolumes[j]
+          volSmaData.push({ time: candleData[i].time, value: sum / (i - start + 1) })
+        }
+        const volMaSeries = chart.addLineSeries({
+          color: sma200Color,
+          lineWidth: 1.5,
+          lineStyle: LineStyle.Solid,
+          priceScaleId: 'volume',
+          lastValueVisible: false,
+          priceLineVisible: false,
+          title: '',
+        })
+        volMaSeries.setData(volSmaData)
+      }
+
       const rsiPeriod = 14
       const rsiSeriesData = []
       const rsiMap = new Map()
@@ -360,7 +442,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
         for (let i = 0; i < candleData.length; i++) {
           const t = candleData[i].time
           if (i === 0) {
-            rsiSeriesData.push({ time: t }) // Whitespace item to keep 1:1 logical index alignment
+            rsiSeriesData.push({ time: t })
             continue
           }
           const diff = closes[i] - closes[i - 1]
@@ -370,7 +452,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
           if (i < rsiPeriod) {
             avgGain += gain
             avgLoss += loss
-            rsiSeriesData.push({ time: t }) // Whitespace item during warmup
+            rsiSeriesData.push({ time: t })
           } else if (i === rsiPeriod) {
             avgGain = (avgGain + gain) / rsiPeriod
             avgLoss = (avgLoss + loss) / rsiPeriod
@@ -388,50 +470,41 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
       }
 
       const rsiSeries = rsiChart.addLineSeries({
-        color: '#8B5CF6',
+        color: sma50Color,
         lineWidth: 2,
         lineStyle: LineStyle.Solid,
         title: '',
         priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
         autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: 0,
-            maxValue: 100,
-          },
+          priceRange: { minValue: 0, maxValue: 100 },
         }),
       })
-
       if (rsiSeriesData.length > 0) {
         rsiSeries.setData(rsiSeriesData)
       }
 
-      // RSI Overbought (70), Midline (50), Oversold (30) reference lines
       rsiSeries.createPriceLine({
         price: 70,
-        color: 'rgba(239, 68, 68, 0.55)',
+        color: isDark ? 'rgba(242, 92, 105, 0.5)' : 'rgba(196, 37, 54, 0.45)',
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: false,
-        title: '',
       })
       rsiSeries.createPriceLine({
         price: 50,
-        color: isDark ? 'rgba(156, 163, 175, 0.28)' : 'rgba(107, 114, 128, 0.28)',
+        color: isDark ? 'rgba(143, 164, 184, 0.28)' : 'rgba(82, 91, 85, 0.25)',
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: false,
-        title: '',
       })
       rsiSeries.createPriceLine({
         price: 30,
-        color: 'rgba(16, 185, 129, 0.55)',
+        color: isDark ? 'rgba(37, 194, 129, 0.5)' : 'rgba(14, 122, 77, 0.45)',
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: false,
-        title: '',
       })
 
-      // 8. Bidirectional Logical Range Synchronization
       let isSyncingFromMain = false
       let isSyncingFromRsi = false
 
@@ -449,46 +522,33 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
         isSyncingFromRsi = false
       })
 
-      // 9. Default / Initial Legend Data & Bidirectional Crosshair Sync
       if (candleData.length > 0) {
         const candleMap = new Map()
         candleData.forEach((c) => candleMap.set(c.time, c))
 
-        const lastCandle = candleData[candleData.length - 1]
-        const lastTime = lastCandle.time
-        const defaultLegend = {
-          time: lastTime,
-          open: lastCandle.open,
-          high: lastCandle.high,
-          low: lastCandle.low,
-          close: lastCandle.close,
-          volume: volumeMap.get(lastTime) ?? 0,
-          sma50: sma50Map.get(lastTime) ?? null,
-          sma200: sma200Map.get(lastTime) ?? null,
-          rsi14: rsiMap.get(lastTime) ?? null,
-        }
-        setLegendData(defaultLegend)
-
-        let isSyncingCrosshair = false
-
-        const updateLegendForTime = (t) => {
+        const makeLegendForTime = (t) => {
           const c = candleMap.get(t)
-          if (!c) {
-            setLegendData(defaultLegend)
-            return
-          }
-          setLegendData({
+          if (!c) return null
+          return {
             time: t,
             open: c.open,
             high: c.high,
             low: c.low,
             close: c.close,
+            prevClose: prevCloseMap.get(t) ?? c.open,
             volume: volumeMap.get(t) ?? 0,
+            sma20: sma20Map.get(t) ?? null,
             sma50: sma50Map.get(t) ?? null,
             sma200: sma200Map.get(t) ?? null,
             rsi14: rsiMap.get(t) ?? null,
-          })
+          }
         }
+
+        const lastTime = candleData[candleData.length - 1].time
+        const defaultLegend = makeLegendForTime(lastTime)
+        setLegendData(defaultLegend)
+
+        let isSyncingCrosshair = false
 
         chart.subscribeCrosshairMove((param) => {
           if (isSyncingCrosshair) return
@@ -509,7 +569,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
               return
             }
 
-            updateLegendForTime(param.time)
+            setLegendData(makeLegendForTime(param.time) || defaultLegend)
             const rVal = rsiMap.get(param.time)
             try {
               if (rVal !== undefined && rVal !== null && !isNaN(rVal)) {
@@ -542,7 +602,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
               return
             }
 
-            updateLegendForTime(param.time)
+            setLegendData(makeLegendForTime(param.time) || defaultLegend)
             const c = candleMap.get(param.time)
             try {
               if (c) {
@@ -560,25 +620,7 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
       candleDataRef.current = candleData
       applyRange(activeRange, chart, rsiChart, candleData)
 
-      const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight,
-          })
-        }
-        if (rsiContainerRef.current && rsiChartRef.current) {
-          rsiChartRef.current.applyOptions({
-            width: rsiContainerRef.current.clientWidth,
-            height: rsiContainerRef.current.clientHeight,
-          })
-        }
-      }
-
-      window.addEventListener('resize', handleResize)
-
       return () => {
-        window.removeEventListener('resize', handleResize)
         if (chartRef.current) {
           chartRef.current.remove()
           chartRef.current = null
@@ -592,13 +634,13 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
       console.error('Error rendering Lightweight Charts:', e)
       setError(e.message || 'Failed to render chart')
     }
-  }, [data, isDark, activeRange])
+  }, [activeData, isDark, activeRange, overlays])
 
   const isSameHigh =
-    data &&
-    data.high_52w &&
-    data.high_ath &&
-    Math.abs(data.high_52w - data.high_ath) / data.high_ath < 0.005
+    activeData &&
+    activeData.high_52w &&
+    activeData.high_ath &&
+    Math.abs(activeData.high_52w - activeData.high_ath) / activeData.high_ath < 0.005
 
   const formatNum2 = (val) => {
     if (val === undefined || val === null || isNaN(val)) return '0.00'
@@ -652,317 +694,366 @@ export default function ChartModal({ symbol, stocks = [], onSelectStock, onClose
 
   const getRsiColorClass = (rsiVal) => {
     if (rsiVal === null || rsiVal === undefined || isNaN(rsiVal)) {
-      return 'text-[#111827] dark:text-[#F9FAFB]'
+      return 'text-[var(--ink)]'
     }
-    if (rsiVal >= 70) return 'text-[#EF4444]'
-    if (rsiVal <= 30) return 'text-[#10B981]'
-    return 'text-[#111827] dark:text-[#F9FAFB]'
+    if (rsiVal >= 70) return 'text-[var(--down)]'
+    if (rsiVal <= 30) return 'text-[var(--up)]'
+    return 'text-[var(--ink)]'
   }
 
+  const toggleOverlay = (key) => {
+    setOverlays((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const currentPrice = activeData?.current_price || legendData?.close || 1000
+  const suggestedSl = (() => {
+    if (activeData?.atr14_pct && activeData.atr14_pct > 0) {
+      return Number((currentPrice * (1 - (1.5 * activeData.atr14_pct) / 100)).toFixed(2))
+    }
+    if (activeData?.sma20 && activeData.sma20 > 0 && activeData.sma20 < currentPrice) {
+      return Number(activeData.sma20.toFixed(2))
+    }
+    return Number((currentPrice * 0.95).toFixed(2))
+  })()
+
+  const prevChgDiff = legendData ? legendData.close - (legendData.prevClose || legendData.open) : 0
+  const prevChgPct =
+    legendData && (legendData.prevClose || legendData.open) > 0
+      ? (prevChgDiff / (legendData.prevClose || legendData.open)) * 100
+      : 0
+
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in cursor-pointer font-sans"
+    <dialog
+      ref={dialogRef}
+      closedby="any"
+      aria-labelledby={titleId}
+      onClose={onClose}
+      className="bg-transparent p-0 m-auto w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-[1280px] max-h-[94vh] rounded-[8px] border-0 overflow-visible font-sans animate-fade-in"
     >
-      {/* Modal Box */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-[#111827] border border-[#E5E7EB] dark:border-[#1F2937] rounded-3xl w-full max-w-6xl max-h-[95vh] flex flex-col shadow-2xl overflow-hidden cursor-default"
-      >
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[8px] w-full max-h-[94vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between gap-4 bg-white dark:bg-[#111827]">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="w-9 h-9 rounded-lg bg-[#111827] dark:bg-[#F9FAFB] text-white dark:text-[#111827] flex items-center justify-center font-semibold text-xs shadow-xs">
-              {symbol.slice(0, 2)}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-[#111827] dark:text-[#F9FAFB] tracking-tight">
-                  {symbol}
-                </h2>
-                {data?.is_fno && (
-                  <span
-                    className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase rounded bg-[#8069BF]/10 text-[#8069BF] dark:bg-[#8069BF]/20 dark:text-[#A78BFA] border border-[#8069BF]/20 leading-none"
-                    title={
-                      data.fno_lot_size
-                        ? `NSE F&O Stock • Lot Size: ${data.fno_lot_size}`
-                        : 'NSE F&O Stock'
-                    }
-                  >
-                    F&O
-                  </span>
-                )}
-                <span className="text-xs text-[#6B7280] dark:text-[#9CA3AF] font-normal">
-                  NSE Equities
+        <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between gap-4 bg-[var(--surface)] flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 id={titleId} className="m-0 font-display text-[18px] font-bold tracking-[-0.02em] text-[var(--ink)]">
+                {symbol}
+              </h2>
+              {onToggleWatchlist && (
+                <button
+                  type="button"
+                  onClick={() => onToggleWatchlist(symbol)}
+                  aria-label={isWatchlisted ? `Remove ${symbol} from watchlist` : `Add ${symbol} to watchlist`}
+                  aria-pressed={isWatchlisted}
+                  className={`p-0.5 cursor-pointer bp-transition ${
+                    isWatchlisted
+                      ? 'text-[var(--star-active)]'
+                      : 'text-[var(--border-strong)] hover:text-[var(--ink-muted)]'
+                  }`}
+                >
+                  <Star className="w-4 h-4" fill={isWatchlisted ? 'currentColor' : 'none'} strokeWidth={1.8} />
+                </button>
+              )}
+              {activeRange === '1H' && activeData?.is_synthetic && (
+                <span className="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--sma200)]">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Estimated 1H (intraday feed unavailable)
                 </span>
-              </div>
-              <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] truncate max-w-xs sm:max-w-sm font-normal">
-                {data?.name || symbol}
-              </p>
+              )}
             </div>
+            <p className="m-0 mt-0.5 text-[13px] text-[var(--ink-muted)] truncate max-w-md">
+              {activeData?.name || (loading ? 'Loading...' : symbol)}
+              {activeData?.is_fno && (
+                <span className="text-[var(--accent)] font-semibold">
+                  {activeData.fno_lot_size
+                    ? ` · F&O lot ${Number(activeData.fno_lot_size).toLocaleString('en-IN')}`
+                    : ' · F&O'}
+                </span>
+              )}
+            </p>
           </div>
 
-          {/* Quick Metrics: Aligned Labels & Values with Consolidated Duplicate Highs & Turnover */}
-          {data && (
-            <div className="hidden md:flex items-center gap-4 bg-[#F9FAFB] dark:bg-[#161D27] px-4 py-2 rounded-xl text-xs border border-[#E5E7EB] dark:border-[#1F2937]">
-              {/* Consolidated 52W / ATH or Distinct Badges */}
+          {/* Typographic Summary Stats */}
+          {activeData && (
+            <div className="hidden lg:flex items-center gap-6 text-[13px] tabular-nums">
               {isSameHigh ? (
                 <div>
-                  <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">
-                    52W / ATH:
-                  </span>
-                  <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
-                    {formatNum2(data.high_ath)} ({formatPct2(data.dist_to_ath_pct)})
+                  <span className="block text-[var(--ink-muted)]">52W / ATH</span>
+                  <span className="font-semibold text-[14px] text-[var(--ink)]">
+                    ₹{formatNum2(activeData.high_ath)} ({formatPct2(activeData.dist_to_ath_pct)})
                   </span>
                 </div>
               ) : (
                 <>
                   <div>
-                    <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">
-                      52W High:
-                    </span>
-                    <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
-                      {formatNum2(data.high_52w)} ({formatPct2(data.dist_to_52w_high_pct)})
+                    <span className="block text-[var(--ink-muted)]">52W high</span>
+                    <span className="font-semibold text-[14px] text-[var(--ink)]">
+                      ₹{formatNum2(activeData.high_52w)} ({formatPct2(activeData.dist_to_52w_high_pct)})
                     </span>
                   </div>
-                  <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                    <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">
-                      All-Time High:
-                    </span>
-                    <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
-                      {formatNum2(data.high_ath)} ({formatPct2(data.dist_to_ath_pct)})
+                  <div className="border-l border-[var(--border)] pl-5">
+                    <span className="block text-[var(--ink-muted)]">All-time high</span>
+                    <span className="font-semibold text-[14px] text-[var(--ink)]">
+                      ₹{formatNum2(activeData.high_ath)} ({formatPct2(activeData.dist_to_ath_pct)})
                     </span>
                   </div>
                 </>
               )}
 
-              {/* Volume Multiple */}
-              <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">
-                  Volume Signal:
-                </span>
+              <div className="border-l border-[var(--border)] pl-5">
+                <span className="block text-[var(--ink-muted)]">Volume multiple</span>
                 <span
-                  className={`font-semibold tabular-nums text-sm ${
-                    data.is_volume_confirmed
-                      ? 'text-[#16A34A] dark:text-[#22C55E]'
-                      : 'text-[#111827] dark:text-[#F9FAFB]'
+                  className={`font-semibold text-[14px] ${
+                    activeData.is_volume_confirmed ? 'text-[var(--up)]' : 'text-[var(--ink)]'
                   }`}
                 >
-                  {Number(data.volume_multiple).toFixed(2)}x
+                  {Number(activeData.volume_multiple).toFixed(2)}×
                 </span>
               </div>
 
-              {/* Turnover */}
-              <div className="border-l border-[#E5E7EB] dark:border-[#374151] pl-4">
-                <span className="text-[#6B7280] dark:text-[#9CA3AF] block text-[11px] uppercase font-medium">
-                  Turnover:
-                </span>
-                <span className="font-semibold tabular-nums text-[#111827] dark:text-[#F9FAFB] text-sm">
-                  {formatNum2(data.turnover_cr)} Cr/day
+              <div className="border-l border-[var(--border)] pl-5">
+                <span className="block text-[var(--ink-muted)]">Turnover</span>
+                <span className="font-semibold text-[14px] text-[var(--ink)]">
+                  ₹{formatNum2(activeData.turnover_cr)} Cr
                 </span>
               </div>
             </div>
           )}
 
-          {/* Header Right Actions: Prev/Next Navigation, Timeframe Selector (1H, 1D, 1W) & Close */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Stock List Navigation (Keyboard ↑/↓) */}
+          {/* Header Controls */}
+          <div className="flex items-center gap-2.5 flex-wrap">
             {stocks.length > 1 && currentIndex !== -1 && (
               <div
-                className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl text-xs"
-                title="Use ↑ / ↓ or ← / → arrow keys to cycle through screened stocks"
+                className="bp-segmented"
+                title="Use Up/Down or Left/Right arrow keys to cycle screened stocks"
               >
                 <button
+                  type="button"
                   onClick={handlePrevStock}
                   disabled={!hasPrev}
-                  className="p-1.5 rounded-lg text-[#111827] dark:text-[#F9FAFB] disabled:opacity-30 hover:bg-white dark:hover:bg-[#111827] transition-colors"
-                  aria-label="Previous stock (Up Arrow)"
+                  className="bp-seg-btn disabled:opacity-30 disabled:cursor-not-allowed"
+                  aria-label="Previous stock"
                 >
                   <ChevronUp className="w-3.5 h-3.5" />
                 </button>
-                <span className="px-2 text-[11px] font-medium tabular-nums text-[#6B7280] dark:text-[#9CA3AF]">
+                <span className="px-2 text-[13px] font-medium tabular-nums text-[var(--ink-muted)]">
                   {currentIndex + 1} / {stocks.length}
                 </span>
                 <button
+                  type="button"
                   onClick={handleNextStock}
                   disabled={!hasNext}
-                  className="p-1.5 rounded-lg text-[#111827] dark:text-[#F9FAFB] disabled:opacity-30 hover:bg-white dark:hover:bg-[#111827] transition-colors"
-                  aria-label="Next stock (Down Arrow)"
+                  className="bp-seg-btn disabled:opacity-30 disabled:cursor-not-allowed"
+                  aria-label="Next stock"
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
 
-            {/* Timeframe Selector (1H, 1D, 1W) */}
-            <div className="flex items-center bg-[#F3F4F6] dark:bg-[#1F2937] p-0.5 rounded-xl text-xs">
+            <div className="bp-segmented" role="group" aria-label="Chart timeframe">
               {TIMEFRAMES.map((r) => (
                 <button
                   key={r}
-                  onClick={() => handleRangeChange(r)}
-                  className={`px-2.5 py-1 rounded-lg transition-colors font-medium ${
-                    activeRange === r
-                      ? 'bg-white dark:bg-[#111827] text-[#111827] dark:text-[#F9FAFB] shadow-xs font-semibold'
-                      : 'text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]'
-                  }`}
+                  type="button"
+                  onClick={() => r !== activeRange && setActiveRange(r)}
+                  aria-pressed={activeRange === r}
+                  className={`bp-seg-btn ${activeRange === r ? 'is-active' : ''}`}
                 >
                   {r}
                 </button>
               ))}
             </div>
 
-            {/* Close Button */}
             <button
-              onClick={onClose}
-              className="p-2 text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB] rounded-xl hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] transition-colors"
-              title="Close (or click outside / press Esc)"
+              type="button"
+              onClick={() => setShowRiskCalc((v) => !v)}
+              aria-pressed={showRiskCalc}
+              className={`inline-flex items-center gap-1.5 px-2.5 h-[32px] rounded-[6px] text-[13px] font-medium border bp-transition cursor-pointer ${
+                showRiskCalc
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent)] font-semibold'
+                  : 'bg-[var(--surface-subtle)] text-[var(--ink-muted)] border-[var(--border)] hover:text-[var(--ink)]'
+              }`}
+              title="Toggle R-based Position Sizer"
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sizer</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => dialogRef.current?.close()}
+              aria-label="Close chart modal"
+              className="p-1.5 text-[var(--ink-muted)] hover:text-[var(--ink)] rounded-[6px] hover:bg-[var(--surface-subtle)] bp-transition cursor-pointer"
+              title="Close (Esc)"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Real-time Dynamic Crosshair Legend Bar */}
-        <div className="px-5 py-2.5 bg-[#F9FAFB] dark:bg-[#111827] border-b border-[#E5E7EB] dark:border-[#1F2937] flex items-center justify-between text-xs text-[#6B7280] dark:text-[#9CA3AF] flex-wrap gap-y-2 gap-x-4">
-          {/* Live Hovered OHLC */}
-          {legendData && (
-            <div className="flex items-center gap-3.5 flex-wrap font-normal tabular-nums">
-              <span className="font-medium text-[#111827] dark:text-[#F9FAFB]">
+        {/* Crosshair Readout & Overlay Toggles */}
+        <div className="px-5 py-2.5 bg-[var(--surface-subtle)] border-b border-[var(--border)] flex items-center justify-between text-[13px] text-[var(--ink-muted)] flex-wrap gap-y-2 gap-x-4">
+          {legendData ? (
+            <div className="flex items-center gap-3 flex-wrap tabular-nums">
+              <span className="font-medium text-[var(--ink)]">
                 {formatLegendDate(legendData.time)}
               </span>
               <span>
-                O:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(legendData.open)}
-                </span>
+                O <span className="font-semibold text-[var(--ink)]">{formatNum2(legendData.open)}</span>
               </span>
               <span>
-                H:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(legendData.high)}
-                </span>
+                H <span className="font-semibold text-[var(--ink)]">{formatNum2(legendData.high)}</span>
               </span>
               <span>
-                L:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(legendData.low)}
-                </span>
+                L <span className="font-semibold text-[var(--ink)]">{formatNum2(legendData.low)}</span>
               </span>
               <span>
-                C:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(legendData.close)}
-                </span>
+                C <span className="font-semibold text-[var(--ink)]">{formatNum2(legendData.close)}</span>
               </span>
-              {/* Candle Return */}
-              {legendData.open && legendData.close && (
-                <span
-                  className={`font-semibold ${
-                    legendData.close >= legendData.open ? 'text-[#10B981]' : 'text-[#EF4444]'
-                  }`}
-                >
-                  {legendData.close >= legendData.open ? '+' : ''}
-                  {(legendData.close - legendData.open).toFixed(2)} (
-                  {legendData.close >= legendData.open ? '+' : ''}
-                  {(((legendData.close - legendData.open) / legendData.open) * 100).toFixed(2)}%)
-                </span>
-              )}
-              {legendData.volume !== undefined && legendData.volume !== null && (
-                <span>
-                  Vol:{' '}
-                  <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                    {formatVolume(legendData.volume)}
-                  </span>
-                </span>
-              )}
+              <span
+                className={`font-semibold ${prevChgDiff >= 0 ? 'text-[var(--up)]' : 'text-[var(--down)]'}`}
+              >
+                {prevChgDiff >= 0 ? '+' : ''}
+                {prevChgDiff.toFixed(2)} ({prevChgPct >= 0 ? '+' : ''}
+                {prevChgPct.toFixed(2)}%)
+              </span>
+              <span>
+                Vol <span className="font-semibold text-[var(--ink)]">{formatVolume(legendData.volume)}</span>
+              </span>
             </div>
+          ) : (
+            <div className="text-[13px] text-[var(--ink-muted)]">Loading series...</div>
           )}
 
-          {/* Real-time Indicator Overlays */}
-          <div className="flex items-center gap-4 flex-wrap text-[11px] font-medium tabular-nums ml-auto">
-            {/* 50 SMA */}
-            <span className="flex items-center gap-1.5 text-[#38BDF8]">
-              <span className="w-2.5 h-0.5 bg-[#38BDF8] inline-block" />
-              50 {maLabelPrefix}:{' '}
-              <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                {legendData?.sma50 ? formatNum2(legendData.sma50) : '--'}
-              </span>
-            </span>
+          {/* Clean Interactive Overlay Switches/Buttons */}
+          <div className="flex items-center gap-3 flex-wrap text-[13px] font-medium tabular-nums ml-auto">
+            <button
+              type="button"
+              onClick={() => toggleOverlay('sma20')}
+              aria-pressed={overlays.sma20}
+              className={`inline-flex items-center gap-1.5 cursor-pointer bp-transition ${
+                overlays.sma20 ? 'text-[var(--ink)] font-semibold' : 'text-[var(--ink-muted)] opacity-55 hover:opacity-90'
+              }`}
+            >
+              <span className="w-2.5 h-0.5 bg-[var(--sma20)] inline-block" />
+              <span>20 {maLabelPrefix}{overlays.sma20 && legendData?.sma20 ? ` ${formatNum2(legendData.sma20)}` : ''}</span>
+            </button>
 
-            {/* 200 SMA */}
-            <span className="flex items-center gap-1.5 text-[#F97316]">
-              <span className="w-2.5 h-0.5 bg-[#F97316] inline-block" />
-              200 {maLabelPrefix}:{' '}
-              <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                {legendData?.sma200 ? formatNum2(legendData.sma200) : '--'}
-              </span>
-            </span>
+            <button
+              type="button"
+              onClick={() => toggleOverlay('sma50')}
+              aria-pressed={overlays.sma50}
+              className={`inline-flex items-center gap-1.5 cursor-pointer bp-transition ${
+                overlays.sma50 ? 'text-[var(--ink)] font-semibold' : 'text-[var(--ink-muted)] opacity-55 hover:opacity-90'
+              }`}
+            >
+              <span className="w-2.5 h-0.5 bg-[var(--accent)] inline-block" />
+              <span>50 {maLabelPrefix}{overlays.sma50 && legendData?.sma50 ? ` ${formatNum2(legendData.sma50)}` : ''}</span>
+            </button>
 
-            {/* RSI 14 */}
-            <span className="flex items-center gap-1.5 text-[#8B5CF6]">
-              <span className="w-2.5 h-0.5 bg-[#8B5CF6] inline-block" />
-              RSI 14:{' '}
+            <button
+              type="button"
+              onClick={() => toggleOverlay('sma200')}
+              aria-pressed={overlays.sma200}
+              className={`inline-flex items-center gap-1.5 cursor-pointer bp-transition ${
+                overlays.sma200 ? 'text-[var(--ink)] font-semibold' : 'text-[var(--ink-muted)] opacity-55 hover:opacity-90'
+              }`}
+            >
+              <span className="w-2.5 h-0.5 bg-[var(--sma200)] inline-block" />
+              <span>200 {maLabelPrefix}{overlays.sma200 && legendData?.sma200 ? ` ${formatNum2(legendData.sma200)}` : ''}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => toggleOverlay('volSma50')}
+              aria-pressed={overlays.volSma50}
+              className={`inline-flex items-center gap-1.5 cursor-pointer bp-transition ${
+                overlays.volSma50 ? 'text-[var(--ink)] font-semibold' : 'text-[var(--ink-muted)] opacity-55 hover:opacity-90'
+              }`}
+            >
+              <span className="w-2.5 h-0.5 bg-[var(--sma200)] inline-block opacity-75" />
+              <span>Vol 50 MA</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => toggleOverlay('highs')}
+              aria-pressed={overlays.highs}
+              className={`inline-flex items-center gap-1.5 cursor-pointer bp-transition ${
+                overlays.highs ? 'text-[var(--ink)] font-semibold' : 'text-[var(--ink-muted)] opacity-55 hover:opacity-90'
+              }`}
+            >
+              <span className="w-2.5 h-0 border-t-2 border-dashed border-[var(--ink-muted)] inline-block" />
+              <span>ATH / 52W</span>
+            </button>
+
+            <span className="inline-flex items-center gap-1 pl-1 text-[var(--accent)]">
+              RSI(14)
               <span className={`font-semibold ${getRsiColorClass(legendData?.rsi14)}`}>
                 {legendData?.rsi14 !== null && legendData?.rsi14 !== undefined
                   ? legendData.rsi14.toFixed(2)
                   : '--'}
               </span>
             </span>
-
-            {/* ATH */}
-            {data?.high_ath && (
-              <span className="flex items-center gap-1.5 text-[#FACC15]">
-                <span className="w-2.5 h-0.5 border-t-2 border-dashed border-[#FACC15] inline-block" />
-                ATH:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(data.high_ath)}
-                </span>
-              </span>
-            )}
-
-            {/* 52W High (Only if not same as ATH) */}
-            {!isSameHigh && data?.high_52w && (
-              <span className="flex items-center gap-1.5 text-[#A855F7]">
-                <span className="w-2.5 h-0.5 border-t-2 border-dotted border-[#A855F7] inline-block" />
-                52W H:{' '}
-                <span className="font-semibold text-[#111827] dark:text-[#F9FAFB]">
-                  {formatNum2(data.high_52w)}
-                </span>
-              </span>
-            )}
           </div>
         </div>
 
-        {/* Stacked Chart Canvases: Main Candlestick/Volume Pane + Synchronized RSI(14) Sub-Pane */}
-        <div className="relative flex-1 flex flex-col min-h-[500px] bg-white dark:bg-[#111827]">
-          {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-xs z-20">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-[#111827] dark:border-[#F9FAFB] border-t-transparent" />
-            </div>
-          )}
-          {error && (
-            <div className="absolute inset-0 flex items-center justify-center text-[#DC2626] dark:text-[#EF4444] text-sm font-medium z-20">
-              {error}
-            </div>
-          )}
+        {/* Chart Stage + Risk Calculator Side Column */}
+        <div className="flex-1 flex flex-col lg:flex-row min-h-[500px] overflow-hidden bg-[var(--surface)]">
+          <div className="relative flex-1 flex flex-col min-h-[500px] min-w-0">
+            {loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--surface)]/90 backdrop-blur-sm z-20 gap-2">
+                <div className="inline-block animate-spin rounded-full h-7 w-7 border-[3px] border-[var(--accent)] border-t-transparent" />
+                <span className="text-[13px] text-[var(--ink-muted)]">
+                  Loading {symbol} ({activeRange})...
+                </span>
+              </div>
+            )}
+            {error && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--surface)]/95 z-20 p-6 text-center gap-3">
+                <AlertTriangle className="w-7 h-7 text-[var(--down)]" />
+                <p className="text-[14px] font-medium text-[var(--down)] max-w-md">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => setFetchNonce((n) => n + 1)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[14px] font-semibold rounded-[6px] bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Retry
+                </button>
+              </div>
+            )}
 
-          {/* Main Candlestick + SMA + Volume Pane */}
-          <div ref={chartContainerRef} className="w-full flex-1 min-h-[350px]" />
+            <div ref={chartContainerRef} className="w-full flex-1 min-h-[360px]" />
 
-          {/* RSI(14) Indicator Sub-Pane */}
-          <div className="relative w-full h-[145px] border-t border-[#E5E7EB] dark:border-[#1F2937]">
-            <div className="absolute top-2 left-3 z-10 pointer-events-none flex items-center gap-2 text-[11px] font-medium tabular-nums bg-white/80 dark:bg-[#111827]/80 px-2 py-0.5 rounded-md">
-              <span className="text-[#8B5CF6] font-semibold">RSI (14)</span>
-              <span className={`font-semibold ${getRsiColorClass(legendData?.rsi14)}`}>
-                {legendData?.rsi14 !== null && legendData?.rsi14 !== undefined
-                  ? legendData.rsi14.toFixed(2)
-                  : '--'}
-              </span>
+            <div className="relative w-full h-[140px] border-t border-[var(--border)]">
+              <div className="absolute top-1.5 left-3 z-10 pointer-events-none flex items-center gap-2 text-[13px] font-medium tabular-nums bg-[var(--surface)]/85 px-1.5 py-0.5 rounded-[4px]">
+                <span className="text-[var(--accent)] font-semibold">RSI (14)</span>
+                <span className={`font-semibold ${getRsiColorClass(legendData?.rsi14)}`}>
+                  {legendData?.rsi14 !== null && legendData?.rsi14 !== undefined
+                    ? legendData.rsi14.toFixed(2)
+                    : '--'}
+                </span>
+              </div>
+              <div ref={rsiContainerRef} className="w-full h-full" />
             </div>
-            <div ref={rsiContainerRef} className="w-full h-full" />
           </div>
+
+          {showRiskCalc && (
+            <aside className="lg:w-80 shrink-0 border-t lg:border-t-0 lg:border-l border-[var(--border)] p-5 overflow-y-auto bg-[var(--surface)]">
+              <RiskCalculator
+                variant="drawer"
+                symbol={symbol}
+                entryDefault={currentPrice}
+                stopLossDefault={suggestedSl}
+                atr14Pct={activeData?.atr14_pct}
+                isFno={activeData?.is_fno}
+                fnoLotSize={activeData?.fno_lot_size}
+              />
+            </aside>
+          )}
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }

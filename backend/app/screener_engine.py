@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import math
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
@@ -7,13 +9,16 @@ from backend.app.models import (
     Candle, HighLowAnalysis, StockScreenerItem
 )
 
+IST = ZoneInfo("Asia/Kolkata")
+
+
 class ScreenerEngine:
     def __init__(
         self,
         ath_min_trading_days: int = 500,       # Tunable ATH history cutoff (~2 years)
-        min_active_days_20d: int = 18,         # Thin trading check: >=18 of last 20 days non-zero volume
+        min_active_days_20d: int = 15,         # Thin trading check: >=15 of last 20 days non-zero volume
         min_daily_turnover_lakhs: float = 25.0,# Liquidity floor: >= ₹25 Lakhs/day avg turnover
-        min_sma200_slope_60d_pct: float = 2.0, # Momentum check: 200 SMA must have risen >= 2% over 60 trading days
+        min_sma200_slope_60d_pct: float = 2.0, # Momentum check: 200 SMA slope reference
         min_vol_multiple_confirmed: float = 1.4# Volume confirmation threshold (>= 1.4x 50-day avg volume)
     ):
         self.ath_min_trading_days = ath_min_trading_days
@@ -64,64 +69,96 @@ class ScreenerEngine:
         nifty50_bench_df: Optional[pd.DataFrame] = None
     ) -> Dict[str, Tuple[int, int]]:
         """
-        Computes Relative Strength vs Small/Midcap benchmark (Primary)
-        and vs Nifty 50 (Secondary context), percentile-ranked 1-99:
-        RS Score = 0.6 * (R_stock,3M - R_bench,3M) + 0.4 * (R_stock,6M - R_bench,6M)
+        Computes:
+        1. rs_rating_smallmid (1-99): Cross-sectional IBD-style percentile rank across the
+           universe using weighted 3M/6M/12M returns (0.40 * R_3M + 0.30 * R_6M + 0.30 * R_12M).
+        2. rs_rating_nifty50 (1-99): Benchmark-relative outperformance vs Nifty 50 using the
+           compounded relative return ratio centered at 50.
         """
-        def get_bench_returns(bench_df):
+        def safe_return(arr: np.ndarray, lookback: int) -> Optional[float]:
+            n_arr = len(arr)
+            if n_arr < 2:
+                return None
+            idx0 = max(0, n_arr - 1 - lookback)
+            base = float(arr[idx0])
+            last = float(arr[-1])
+            if base <= 0.0 or not math.isfinite(base) or not math.isfinite(last):
+                return None
+            return (last - base) / base
+
+        def get_bench_returns(bench_df: Optional[pd.DataFrame]) -> Tuple[float, float]:
             if bench_df is not None and len(bench_df) >= 30:
-                bc = bench_df["close"].values
+                bc = np.asarray(bench_df["close"].values, dtype=np.float64)
                 nb = len(bc)
-                ret_3m = (bc[-1] - bc[max(0, nb - 63)]) / bc[max(0, nb - 63)] if nb > 63 else 0.0
-                ret_6m = (bc[-1] - bc[max(0, nb - 126)]) / bc[max(0, nb - 126)] if nb > 126 else 0.0
-                return ret_3m, ret_6m
+                r3 = safe_return(bc, 63) if nb > 63 else safe_return(bc, nb - 1)
+                r6 = safe_return(bc, 126) if nb > 126 else r3
+                return (r3 if r3 is not None else 0.0), (r6 if r6 is not None else 0.0)
             return 0.0, 0.0
 
-        sm_ret_3m, sm_ret_6m = get_bench_returns(smallmid_bench_df)
         n50_ret_3m, n50_ret_6m = get_bench_returns(nifty50_bench_df)
 
-        scores_sm = {}
-        scores_n50 = {}
+        scores_sm: Dict[str, float] = {}
+        scores_n50: Dict[str, int] = {}
 
         for sym, df in stock_dfs.items():
             if df is None or len(df) < 20:
                 scores_sm[sym] = -999.0
-                scores_n50[sym] = -999.0
+                scores_n50[sym] = 1
                 continue
 
-            c = df["close"].values
+            c = np.asarray(df["close"].values, dtype=np.float64)
             n = len(c)
-            stk_3m = (c[-1] - c[max(0, n - 63)]) / c[max(0, n - 63)] if n >= 63 else (c[-1] - c[0]) / c[0]
-            stk_6m = (c[-1] - c[max(0, n - 126)]) / c[max(0, n - 126)] if n >= 126 else stk_3m
+            stk_3m = safe_return(c, 63) if n > 63 else safe_return(c, n - 1)
+            if stk_3m is None:
+                scores_sm[sym] = -999.0
+                scores_n50[sym] = 1
+                continue
 
-            score_sm = 0.60 * (stk_3m - sm_ret_3m) + 0.40 * (stk_6m - sm_ret_6m)
-            score_n50 = 0.60 * (stk_3m - n50_ret_3m) + 0.40 * (stk_6m - n50_ret_6m)
+            stk_6m = safe_return(c, 126) if n > 126 else stk_3m
+            if stk_6m is None:
+                stk_6m = stk_3m
 
-            scores_sm[sym] = score_sm
-            scores_n50[sym] = score_n50
+            stk_12m = safe_return(c, 252) if n > 252 else stk_6m
+            if stk_12m is None:
+                stk_12m = stk_6m
 
-        def calc_percentiles(raw_map):
-            valid = [v for v in raw_map.values() if v > -900]
+            # 1. Cross-sectional IBD-style weighted return for Small/Midcap percentile RS (1-99)
+            scores_sm[sym] = 0.40 * stk_3m + 0.30 * stk_6m + 0.30 * stk_12m
+
+            # 2. True Nifty 50 relative outperformance ratio centered at 50
+            denom_3m = 1.0 + n50_ret_3m
+            denom_6m = 1.0 + n50_ret_6m
+            rel_3m = ((1.0 + stk_3m) / denom_3m - 1.0) if denom_3m > 0.0 else (stk_3m - n50_ret_3m)
+            rel_6m = ((1.0 + stk_6m) / denom_6m - 1.0) if denom_6m > 0.0 else (stk_6m - n50_ret_6m)
+            rel_score = 0.60 * rel_3m + 0.40 * rel_6m
+            n50_rating = int(round(max(1.0, min(99.0, 50.0 + rel_score * 100.0))))
+            scores_n50[sym] = n50_rating
+
+        def calc_percentiles(raw_map: Dict[str, float]) -> Dict[str, int]:
+            valid = [v for v in raw_map.values() if v > -900.0 and math.isfinite(v)]
             if not valid:
                 return {k: 50 for k in raw_map}
             s_sorted = np.sort(valid)
             n_valid = len(s_sorted)
-            res = {}
+            res: Dict[str, int] = {}
             for k, val in raw_map.items():
-                if val <= -900:
+                if val <= -900.0 or not math.isfinite(val):
                     res[k] = 1
+                elif n_valid == 1:
+                    res[k] = 50
                 else:
-                    mean_less = np.searchsorted(s_sorted, val, side='left') / n_valid
-                    pct = int(math.ceil(mean_less * 99))
+                    left = np.searchsorted(s_sorted, val, side="left")
+                    right = np.searchsorted(s_sorted, val, side="right")
+                    avg_pos = (left + right - 1) / 2.0
+                    pct = int(round(1.0 + (avg_pos / (n_valid - 1)) * 98.0))
                     res[k] = max(1, min(99, pct))
             return res
 
         pct_sm = calc_percentiles(scores_sm)
-        pct_n50 = calc_percentiles(scores_n50)
 
-        ratings = {}
+        ratings: Dict[str, Tuple[int, int]] = {}
         for sym in stock_dfs:
-            ratings[sym] = (pct_sm.get(sym, 50), pct_n50.get(sym, 50))
+            ratings[sym] = (pct_sm.get(sym, 50), scores_n50.get(sym, 50))
         return ratings
 
     @staticmethod
@@ -187,21 +224,24 @@ class ScreenerEngine:
         plus_dm_smooth = float(np.sum(plus_dm[:period]))
         minus_dm_smooth = float(np.sum(minus_dm[:period]))
 
-        dx_list = []
-        for i in range(period, len(tr)):
-            if i > period:
-                tr_smooth = tr_smooth - (tr_smooth / period) + float(tr[i])
-                plus_dm_smooth = plus_dm_smooth - (plus_dm_smooth / period) + float(plus_dm[i])
-                minus_dm_smooth = minus_dm_smooth - (minus_dm_smooth / period) + float(minus_dm[i])
-
-            if tr_smooth > 0:
-                p_di = 100.0 * (plus_dm_smooth / tr_smooth)
-                m_di = 100.0 * (minus_dm_smooth / tr_smooth)
+        def _calc_di_dx(tr_s: float, p_s: float, m_s: float) -> Tuple[float, float, float]:
+            if tr_s > 0.0:
+                p_val = 100.0 * (p_s / tr_s)
+                m_val = 100.0 * (m_s / tr_s)
             else:
-                p_di, m_di = 0.0, 0.0
+                p_val, m_val = 0.0, 0.0
+            denom = p_val + m_val
+            dx_val = 100.0 * abs(p_val - m_val) / denom if denom > 0.0 else 0.0
+            return p_val, m_val, dx_val
 
-            denom = p_di + m_di
-            dx = 100.0 * abs(p_di - m_di) / denom if denom > 0 else 0.0
+        p_di, m_di, initial_dx = _calc_di_dx(tr_smooth, plus_dm_smooth, minus_dm_smooth)
+        dx_list = [initial_dx]
+        for i in range(period, len(tr)):
+            tr_smooth = tr_smooth - (tr_smooth / period) + float(tr[i])
+            plus_dm_smooth = plus_dm_smooth - (plus_dm_smooth / period) + float(plus_dm[i])
+            minus_dm_smooth = minus_dm_smooth - (minus_dm_smooth / period) + float(minus_dm[i])
+
+            p_di, m_di, dx = _calc_di_dx(tr_smooth, plus_dm_smooth, minus_dm_smooth)
             dx_list.append(dx)
 
         if len(dx_list) < period:
@@ -298,6 +338,157 @@ class ScreenerEngine:
         else:
             setattr(item, key, value)
 
+    @staticmethod
+    def is_above_mas(
+        price: Optional[float],
+        sma50: Optional[float],
+        sma200: Optional[float],
+        trading_days: Optional[int],
+    ) -> bool:
+        """A momentum setup must trade at/above its 50 SMA and 200 SMA (if formed for mature stocks)."""
+        if price is None or float(price) <= 0.0:
+            return False
+        p = float(price)
+        n_bars = int(trading_days) if trading_days is not None else 500
+        if sma50 is not None and p < float(sma50):
+            return False
+        if sma200 is not None and n_bars >= 200 and p < float(sma200):
+            return False
+        return True
+
+    def compute_liquidity(self, closes: Any, volumes: Any) -> Tuple[int, float, bool]:
+        """
+        Computes active trading days, outlier-trimmed 20-day avg turnover (Cr),
+        and whether the stock passes the canonical NSE liquidity floor.
+        """
+        n_bars = len(closes)
+        if n_bars == 0:
+            return 0, 0.0, False
+        n_last = min(20, n_bars)
+        last_closes = closes[-n_last:]
+        last_vols = volumes[-n_last:]
+
+        active_days = int(sum(1 for v in last_vols if float(v) > 0.0))
+        turnovers_20 = [float(c) * float(v) for c, v in zip(last_closes, last_vols)]
+
+        if len(turnovers_20) > 5:
+            sorted_t20 = sorted(turnovers_20)
+            rest_mean = sum(sorted_t20[:-1]) / (len(sorted_t20) - 1)
+            if sorted_t20[-1] > 4.0 * rest_mean:
+                turnover_cr = round(rest_mean / 1e7, 2)
+            else:
+                turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2)
+        else:
+            turnover_cr = round((sum(turnovers_20) / len(turnovers_20)) / 1e7, 2) if turnovers_20 else 0.0
+
+        min_req_days = min(self.min_active_days_20d, n_last)
+        min_turnover_cr = self.min_daily_turnover_lakhs / 100.0
+        passes_liq = bool(active_days >= min_req_days and turnover_cr >= min_turnover_cr)
+        return active_days, turnover_cr, passes_liq
+
+    def compute_volume_confirmation(
+        self,
+        vol: float,
+        vol_sma50: Optional[float],
+        passes_liquidity: bool,
+    ) -> Tuple[float, bool]:
+        """Computes volume multiple vs 50D avg and canonical volume confirmation flag."""
+        v_cur = float(vol)
+        v_sma = (
+            float(vol_sma50)
+            if (vol_sma50 is not None and not pd.isna(vol_sma50) and float(vol_sma50) > 0.0)
+            else v_cur
+        )
+        vol_mult = round(v_cur / v_sma, 2) if v_sma > 0.0 else 1.0
+        confirmed = bool(
+            passes_liquidity
+            and vol_mult >= self.min_vol_multiple_confirmed
+            and v_cur >= 5000.0
+        )
+        return vol_mult, confirmed
+
+    def check_stage2_trend(
+        self,
+        price: Optional[float],
+        sma20: Optional[float],
+        sma50: Optional[float],
+        sma200: Optional[float],
+        sma200_21d_ago: Optional[float],
+        sma200_slope_60d_pct: Optional[float],
+        trading_days: Optional[int],
+        passes_liquidity: bool,
+        is_recently_listed: bool = False,
+    ) -> Tuple[bool, List[str]]:
+        """
+        Canonical Stage 2 Trend Check:
+        - Mature stocks (>=200 bars or not recent listing): Price > 50 SMA > 200 SMA and rising 200 SMA.
+        - Young recent listings (<200 bars): Young Stage 2 check (Price > 20 SMA > 50 SMA).
+        """
+        reasons: List[str] = []
+        n_bars = int(trading_days) if trading_days is not None else 500
+
+        if not passes_liquidity:
+            reasons.append("Insufficient liquidity or active sessions")
+        if price is None or float(price) <= 0.0:
+            reasons.append("Invalid price")
+            return False, reasons
+
+        p = float(price)
+        if is_recently_listed and n_bars < 200:
+            if sma20 is None or sma50 is None:
+                reasons.append("20/50 SMA not fully formed")
+            else:
+                s20 = float(sma20)
+                s50 = float(sma50)
+                if p <= s20:
+                    reasons.append(f"Price (₹{p:.2f}) <= 20 SMA (₹{s20:.2f})")
+                if s20 <= s50:
+                    reasons.append(f"20 SMA (₹{s20:.2f}) <= 50 SMA (₹{s50:.2f})")
+        else:
+            if n_bars < 200 or sma50 is None or sma200 is None:
+                reasons.append("50/200 SMA not fully formed")
+            else:
+                s50 = float(sma50)
+                s200 = float(sma200)
+                if p <= s50:
+                    reasons.append(f"Price (₹{p:.2f}) <= 50 SMA (₹{s50:.2f})")
+                if p <= s200:
+                    reasons.append(f"Price (₹{p:.2f}) <= 200 SMA (₹{s200:.2f})")
+                if s50 <= s200:
+                    reasons.append(f"50 SMA (₹{s50:.2f}) <= 200 SMA (₹{s200:.2f})")
+                if sma200_21d_ago is not None:
+                    if s200 <= float(sma200_21d_ago):
+                        reasons.append(f"200 SMA not rising vs 21d ago (₹{s200:.2f} <= ₹{float(sma200_21d_ago):.2f})")
+                elif sma200_slope_60d_pct is None or float(sma200_slope_60d_pct) <= 0.0:
+                    reasons.append("200 SMA 60d slope not rising")
+
+        return (len(reasons) == 0), reasons
+
+    def classify_status(
+        self,
+        dist_52w: float,
+        dist_ath: float,
+        trading_days: Optional[int],
+        is_recent: bool,
+        passes_liquidity: bool,
+        is_above_mas: bool,
+    ) -> Tuple[str, str]:
+        """Canonical mutually exclusive breakout category classification."""
+        n_bars = int(trading_days) if trading_days is not None else 500
+        if not passes_liquidity:
+            return "ILLIQUID", "Illiquid / Inactive"
+        if not is_above_mas:
+            return "CONSOLIDATING", "Consolidating"
+        if is_recent and dist_52w >= -10.0:
+            return "RECENT_LISTING", "Recent Listing (<2Y)"
+        if not is_recent and n_bars >= self.ath_min_trading_days and -10.0 <= dist_ath <= 10.0:
+            return "NEAR_ATH", "All-Time High (ATH)"
+        if not is_recent and n_bars >= 200 and dist_52w >= -0.5:
+            return "AT_52W_HIGH", "52-Week Breakout"
+        if not is_recent and n_bars >= 200 and dist_52w >= -10.0:
+            return "NEAR_52W_HIGH", "Near 52W High"
+        return "CONSOLIDATING", "Consolidating"
+
     def check_top10_step1(self, item: Any, require_vol_confirm: bool = True) -> bool:
         """
         Step 1: Shortlist Filters (Pass/Fail)
@@ -330,7 +521,8 @@ class ScreenerEngine:
         r2_63d = float(get(item, "r2_63d") or 0.0)
         change_pct = float(get(item, "change_pct") or 0.0)
         is_recent = bool(get(item, "is_recently_listed", False))
-        n_bars = int(get(item, "trading_days") or 500)
+        raw_bars = get(item, "trading_days")
+        n_bars = int(raw_bars) if raw_bars is not None else 500
         rsi14 = get(item, "rsi14")
         adx14 = get(item, "adx14")
         turnover_cr = float(get(item, "turnover_cr") or 0.0)
@@ -355,7 +547,7 @@ class ScreenerEngine:
             return False
 
         # 3. Stacked Trend (Explicit Pairwise Checks):
-        #    Close > MA20, MA20 > MA50, MA50 > MA100, and MA100 > MA200 (ignore MA200 only if genuine new listing)
+        #    Close > MA20, MA20 > MA50, MA50 > MA100, and MA100 > MA200 (ignore MA200 only if genuine new listing with <200 bars / unformed MA200)
         if n_bars < 100 or sma20 is None or sma50 is None or sma100 is None:
             return False
 
@@ -376,6 +568,13 @@ class ScreenerEngine:
             # 4. Rising 200 DMA: MA200 > MA200[21] (200 DMA must be higher than 21 sessions ago)
             if not (ma200_val > ma200_21_val):
                 return False
+        elif n_bars >= 200 and sma200 is not None:
+            ma200_val = float(sma200)
+            if not (ma100_val > ma200_val and ma50_val > ma200_val and c_val > ma200_val):
+                return False
+            if n_bars >= 221 and sma200_21d_ago is not None:
+                if not (ma200_val > float(sma200_21d_ago)):
+                    return False
 
         # 5. Trend Persistence: Close > MA50 for at least 15 of the last 20 sessions
         if days_above_ma50_20d is None or int(days_above_ma50_20d) < 15:
@@ -495,31 +694,12 @@ class ScreenerEngine:
         rs_n50: int,
         symbol: Optional[str] = None
     ) -> HighLowAnalysis:
-        """
-        Executes:
-        1. Thin Trading & Liquidity Check (>=18/20 active days, >= ₹25 Lakhs turnover)
-        2. Trend & 200 SMA 60-day Momentum Slope Check (Price > 50 SMA > 200 SMA, 200 SMA rising >= 2%)
-        3. History check (>= 500 trading days for ATH eligibility, official listing date for Recent Listing)
-        4. Volume Confirmation (Volume Multiple >= 1.4x 50-day average)
-        5. Strict Moving Average Rule:
-           A stock CANNOT enter breakout categories (NEAR_ATH, AT_52W_HIGH, NEAR_52W_HIGH, RECENT_LISTING)
-           if it trades below its 50 SMA or below its 200 SMA (for mature stocks).
-        6. Exact Non-Overlapping Categorization:
-           - Near 52W High (-10%): price >= 52W_High * 0.90 AND price < 52W_High * 0.99
-           - At 52W High (Not ATH): price >= 52W_High * 0.99 AND 52W_High < ATH * 0.95
-           - Near ATH (±5%): price >= ATH * 0.95 AND price <= ATH * 1.05 (requires trading_days >= ath_min_trading_days)
-           - Recent Listing (< 2Y): exchange listing date within last 2 years AND price >= 52W_High * 0.90
-        """
+        """Executes canonical liquidity, Stage 2 trend, volume confirmation, and breakout categorization."""
         total_bars = len(df)
         row = df.iloc[-1]
         c = float(row["close"])
         prev_c = float(df.iloc[-2]["close"]) if total_bars > 1 else c
         change_pct = round(((c - prev_c) / prev_c) * 100.0, 2) if prev_c > 0 else 0.0
-
-        vol = float(row["volume"])
-        vol_sma50 = float(row.get("vol_sma50", vol)) if not pd.isna(row.get("vol_sma50")) else vol
-        vol_multiple = round(vol / vol_sma50, 2) if vol_sma50 > 0 else 1.0
-        is_vol_confirmed = bool(vol_multiple >= self.min_vol_multiple_confirmed)
 
         high_52w = float(row.get("high_52w", c))
         low_52w = float(row.get("low_52w", c))
@@ -528,94 +708,78 @@ class ScreenerEngine:
         dist_52w = round(((c - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
         dist_ath = round(((c - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
 
-        # Check official listing date from universe metadata to prevent old stocks from becoming fake recent listings
+        # Use latest candle date as reference when evaluating recent listing window (<= 730 days)
+        ref_dt = datetime.now(IST).replace(tzinfo=None)
+        if "date" in df.columns and pd.notna(row.get("date")):
+            try:
+                ref_dt = datetime.strptime(str(row["date"])[:10], "%Y-%m-%d")
+            except Exception:
+                pass
+
         is_recent_listing = False
         if symbol:
             try:
                 from backend.app.universe_store import universe_store
-                from datetime import datetime
                 meta = universe_store.get(symbol)
                 if meta and meta.listing_date:
                     dt = datetime.strptime(meta.listing_date.strip(), "%d-%b-%Y")
-                    # Genuine IPO listed on exchange within the last 730 days (2 years)
-                    is_recent_listing = (datetime.now() - dt).days <= 730
+                    is_recent_listing = (ref_dt - dt).days <= 730
             except Exception:
                 is_recent_listing = False
 
-        # 1. Thin Trading & Liquidity Filter
-        last_20 = df.iloc[-min(20, total_bars):]
-        active_days = int((last_20["volume"] > 0).sum())
-        avg_turnover_rs = float(last_20["turnover"].mean()) if not last_20.empty else 0.0
-        turnover_cr = round(avg_turnover_rs / 10000000.0, 2) # in Crores
-        turnover_lakhs = avg_turnover_rs / 100000.0
+        # 1. Canonical Liquidity & Volume Confirmation
+        closes_arr = df["close"].values
+        vols_arr = df["volume"].values
+        active_days, turnover_cr, passes_liquidity = self.compute_liquidity(closes_arr, vols_arr)
 
-        passes_liquidity = (active_days >= min(self.min_active_days_20d, len(last_20))) and (turnover_lakhs >= self.min_daily_turnover_lakhs)
+        vol = float(row["volume"])
+        vol_sma50_raw = row.get("vol_sma50", vol)
+        vol_sma50 = float(vol_sma50_raw) if (vol_sma50_raw is not None and not pd.isna(vol_sma50_raw)) else vol
+        vol_multiple, is_vol_confirmed = self.compute_volume_confirmation(vol, vol_sma50, passes_liquidity)
 
-        # 2. Trend & 200 SMA Momentum Slope Check
-        sma20 = float(row["sma20"]) if not pd.isna(row.get("sma20")) else None
-        sma50 = float(row["sma50"]) if not pd.isna(row.get("sma50")) else None
-        sma100 = float(row["sma100"]) if not pd.isna(row.get("sma100")) else None
-        sma200 = float(row["sma200"]) if not pd.isna(row.get("sma200")) else None
+        # 2. Moving Averages & Persistence / Oscillators
+        sma20 = float(row["sma20"]) if ("sma20" in df.columns and pd.notna(row.get("sma20"))) else None
+        sma50 = float(row["sma50"]) if ("sma50" in df.columns and pd.notna(row.get("sma50"))) else None
+        sma100 = float(row["sma100"]) if ("sma100" in df.columns and pd.notna(row.get("sma100"))) else None
+        sma200 = float(row["sma200"]) if ("sma200" in df.columns and pd.notna(row.get("sma200"))) else None
 
         sma200_slope_60d_pct = None
-        trend_reasons = []
+        if sma200 is not None and total_bars >= 260 and "sma200" in df.columns:
+            sma200_60d_ago = df.iloc[total_bars - 61].get("sma200")
+            if sma200_60d_ago is not None and not pd.isna(sma200_60d_ago) and float(sma200_60d_ago) > 0:
+                sma200_slope_60d_pct = round(((sma200 - float(sma200_60d_ago)) / float(sma200_60d_ago)) * 100.0, 2)
+        elif sma200 is not None and total_bars > 200 and "sma200" in df.columns:
+            sma200_first = df.iloc[199].get("sma200")
+            if sma200_first is not None and not pd.isna(sma200_first) and float(sma200_first) > 0:
+                sma200_slope_60d_pct = round(((sma200 - float(sma200_first)) / float(sma200_first)) * 100.0, 2)
 
-        if sma50 is not None and sma200 is not None:
-            if c < sma50:
-                trend_reasons.append(f"Price (₹{c:.2f}) < 50 SMA (₹{sma50:.2f})")
-            if c < sma200:
-                trend_reasons.append(f"Price (₹{c:.2f}) < 200 SMA (₹{sma200:.2f})")
-            if sma50 < sma200:
-                trend_reasons.append(f"50 SMA (₹{sma50:.2f}) < 200 SMA (₹{sma200:.2f})")
-
-            # 200 SMA Slope over 60 trading days (~3 months)
-            idx_60 = max(0, total_bars - 61)
-            sma200_60d_ago = df.iloc[idx_60].get("sma200")
-            if not pd.isna(sma200_60d_ago) and float(sma200_60d_ago) > 0:
-                slope_pct = ((sma200 - float(sma200_60d_ago)) / float(sma200_60d_ago)) * 100.0
-                sma200_slope_60d_pct = round(slope_pct, 2)
-                if slope_pct < self.min_sma200_slope_60d_pct:
-                    trend_reasons.append(f"200 SMA 60d slope (+{slope_pct:.1f}%) < required +{self.min_sma200_slope_60d_pct}%")
-            else:
-                trend_reasons.append("Insufficient history for 60d 200 SMA slope")
-        else:
-            trend_reasons.append("50/200 SMA not fully formed")
-
-        passes_trend = (len(trend_reasons) == 0)
-
-        # 3. Strict Moving Average Requirement for Breakout Setups
-        # Price must NOT trade below 50 SMA (if formed) or below 200 SMA (if formed for mature stocks)
-        is_above_mas = True
-        if sma50 is not None and total_bars >= 50 and c < sma50:
-            is_above_mas = False
-        if sma200 is not None and total_bars >= 200 and c < sma200:
-            is_above_mas = False
-
-        status = "OTHER"
-        status_label = "Other / Consolidating"
-
-        # Only stocks trading above their moving averages are eligible for momentum breakout categories
-        if is_above_mas:
-            if is_recent_listing and c >= (high_52w * 0.90):
-                status = "RECENT_LISTING"
-                status_label = "Recent Listing (<2Y)"
-            elif not is_recent_listing and c >= (high_ath * 0.95) and c <= (high_ath * 1.05):
-                status = "NEAR_ATH"
-                status_label = "All-Time High (ATH)"
-            elif c >= (high_52w * 0.99) and high_52w < (high_ath * 0.95):
-                status = "AT_52W_HIGH"
-                status_label = "52-Week High Breakout"
-            elif c >= (high_52w * 0.90) and c < (high_52w * 0.99):
-                status = "NEAR_52W_HIGH"
-                status_label = "Near 52-Week High (-10%)"
-
-        # Compute Wilder RSI(14), ADX(14), ATR(14)% and ROC(21, 63, 126) for Top 10 Momentum Ranking
-        closes_arr = df["close"].values
         rsi14, adx14, atr14_pct = self.compute_wilder_oscillators(
             df["high"].values, df["low"].values, closes_arr, period=14
         )
         roc21, roc63, roc126 = self.compute_roc_metrics(closes_arr)
         sma200_21d_ago, days_above_ma50_20d, r2_63d = self.compute_persistence_and_smoothness(closes_arr)
+
+        passes_trend, trend_reasons = self.check_stage2_trend(
+            price=c,
+            sma20=sma20,
+            sma50=sma50,
+            sma200=sma200,
+            sma200_21d_ago=sma200_21d_ago,
+            sma200_slope_60d_pct=sma200_slope_60d_pct,
+            trading_days=total_bars,
+            passes_liquidity=passes_liquidity,
+            is_recently_listed=is_recent_listing,
+        )
+
+        above_mas = self.is_above_mas(c, sma50, sma200, total_bars)
+        status, status_label = self.classify_status(
+            dist_52w=dist_52w,
+            dist_ath=dist_ath,
+            trading_days=total_bars,
+            is_recent=is_recent_listing,
+            passes_liquidity=passes_liquidity,
+            is_above_mas=above_mas,
+        )
 
         analysis_obj = HighLowAnalysis(
             current_price=round(c, 2),
@@ -631,10 +795,10 @@ class ScreenerEngine:
             is_recently_listed=is_recent_listing,
             passes_trend_check=passes_trend,
             trend_reasons=trend_reasons,
-            sma20=round(sma20, 2) if sma20 else None,
-            sma50=round(sma50, 2) if sma50 else None,
-            sma100=round(sma100, 2) if sma100 else None,
-            sma200=round(sma200, 2) if sma200 else None,
+            sma20=round(sma20, 2) if sma20 is not None else None,
+            sma50=round(sma50, 2) if sma50 is not None else None,
+            sma100=round(sma100, 2) if sma100 is not None else None,
+            sma200=round(sma200, 2) if sma200 is not None else None,
             sma200_21d_ago=sma200_21d_ago,
             sma200_slope_60d_pct=sma200_slope_60d_pct,
             days_above_ma50_20d=days_above_ma50_20d,

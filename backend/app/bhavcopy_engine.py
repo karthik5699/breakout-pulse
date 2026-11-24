@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 import io
 import os
+import re
 import csv
 import zipfile
-import sqlite3
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple, Any
+from zoneinfo import ZoneInfo
+from typing import List, Dict, Optional, Tuple, Any, Callable
 import requests
 
 from backend.app.models import StockScreenerItem
@@ -17,6 +18,12 @@ from backend.app.screener_engine import screener_engine
 
 logger = logging.getLogger(__name__)
 CACHE_JSON_PATH = os.path.join(DATA_DIR, "screener_cache.json")
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _now_ist() -> datetime:
+    """Returns current naive-local wall-clock datetime in Asia/Kolkata (IST)."""
+    return datetime.now(IST).replace(tzinfo=None)
 
 class BhavcopyEngine:
     """
@@ -30,7 +37,7 @@ class BhavcopyEngine:
 
     def parse_pd_csv(self, csv_text: str, default_date: Optional[str] = None) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """
-        Parses NSE 'pd<ddmmyyyy>.csv' content.
+        Parses NSE 'pd<ddmmyyyy>.csv' content using header column names (with positional fallback).
         Columns: MKT,SERIES,SYMBOL,SECURITY,PREV_CL_PR,OPEN_PRICE,HIGH_PRICE,LOW_PRICE,CLOSE_PRICE,NET_TRDVAL,NET_TRDQTY,...
         """
         reader = csv.reader(io.StringIO(csv_text.strip()))
@@ -38,35 +45,56 @@ class BhavcopyEngine:
         if not rows:
             return [], default_date
 
-        header = [h.strip() for h in rows[0]]
+        header = [h.strip().lstrip("\ufeff").upper() for h in rows[0]]
+        col_idx = {name: i for i, name in enumerate(header) if name}
+
+        idx_series = col_idx.get("SERIES", 1)
+        idx_symbol = col_idx.get("SYMBOL", 2)
+        idx_name = col_idx.get("SECURITY", 3)
+        idx_prev = col_idx.get("PREV_CL_PR", 4)
+        idx_open = col_idx.get("OPEN_PRICE", 5)
+        idx_high = col_idx.get("HIGH_PRICE", 6)
+        idx_low = col_idx.get("LOW_PRICE", 7)
+        idx_close = col_idx.get("CLOSE_PRICE", 8)
+        idx_val = col_idx.get("NET_TRDVAL", 9)
+        idx_qty = col_idx.get("NET_TRDQTY", 10)
+
+        min_required = max(idx_series, idx_symbol, idx_open, idx_high, idx_low, idx_close, idx_val, idx_qty) + 1
         stocks = []
-        trade_date = default_date or datetime.now().strftime("%Y-%m-%d")
+        trade_date = default_date or _now_ist().strftime("%Y-%m-%d")
 
         for row in rows[1:]:
-            if len(row) < 11:
+            if len(row) < min_required:
                 continue
-            
-            series = row[1].strip().upper()
-            symbol = row[2].strip().upper()
-            name = row[3].strip()
+
+            series = row[idx_series].strip().upper()
+            symbol = row[idx_symbol].strip().upper()
+            name = row[idx_name].strip() if idx_name < len(row) else symbol
 
             # Filter equity series (EQ, BE, SM, ST)
             if series not in ("EQ", "BE", "SM", "ST") or not symbol:
                 continue
 
             try:
-                open_p = float(row[5].strip())
-                high_p = float(row[6].strip())
-                low_p = float(row[7].strip())
-                close_p = float(row[8].strip())
-                turnover_val = float(row[9].strip())
-                qty = float(row[10].strip())
+                prev_cl_str = row[idx_prev].strip() if idx_prev < len(row) else ""
+                prev_close = float(prev_cl_str) if prev_cl_str else None
+            except (ValueError, IndexError):
+                prev_close = None
+
+            try:
+                open_p = float(row[idx_open].strip())
+                high_p = float(row[idx_high].strip())
+                low_p = float(row[idx_low].strip())
+                close_p = float(row[idx_close].strip())
+                turnover_val = float(row[idx_val].strip())
+                qty = float(row[idx_qty].strip())
 
                 stocks.append({
                     "symbol": symbol,
-                    "name": name,
+                    "name": name or symbol,
                     "series": series,
                     "date": trade_date,
+                    "prev_close": prev_close,
                     "open": open_p,
                     "high": high_p,
                     "low": low_p,
@@ -110,6 +138,12 @@ class BhavcopyEngine:
                     pass
 
             try:
+                prev_raw = cleaned.get("PREV_CLOSE") or cleaned.get("PREVCLPR") or cleaned.get("PREVCLOSE")
+                prev_close = float(prev_raw) if prev_raw else None
+            except (ValueError, TypeError):
+                prev_close = None
+
+            try:
                 open_p = float(cleaned.get("OPEN_PRICE") or cleaned.get("OPEN") or 0)
                 high_p = float(cleaned.get("HIGH_PRICE") or cleaned.get("HIGH") or 0)
                 low_p = float(cleaned.get("LOW_PRICE") or cleaned.get("LOW") or 0)
@@ -125,7 +159,8 @@ class BhavcopyEngine:
                     "symbol": symbol,
                     "name": cleaned.get("NAME") or symbol,
                     "series": series,
-                    "date": trade_date or datetime.now().strftime("%Y-%m-%d"),
+                    "date": trade_date or _now_ist().strftime("%Y-%m-%d"),
+                    "prev_close": prev_close,
                     "open": open_p,
                     "high": high_p,
                     "low": low_p,
@@ -138,24 +173,43 @@ class BhavcopyEngine:
 
         return stocks, trade_date
 
+    @staticmethod
+    def _extract_date_from_filename(filename: str) -> Optional[str]:
+        """Extracts YYYY-MM-DD from NSE Bhavcopy filenames (DDMMMYYYY, YYYY-MM-DD, DDMMYYYY, DDMMYY)."""
+        base = os.path.basename(filename or "")
+        # 1. DDMMMYYYY e.g. cm19NOV2026bhav.csv.zip
+        m = re.search(r"(\d{2}[A-Za-z]{3}20\d{2})", base)
+        if m:
+            try:
+                return datetime.strptime(m.group(1).upper(), "%d%b%Y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        # 2. YYYY-MM-DD / YYYY_MM_DD / YYYYMMDD
+        m = re.search(r"(?<!\d)(20\d{2})[-_]?(\d{2})[-_]?(\d{2})(?!\d)", base)
+        if m:
+            try:
+                return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        # 3. DDMMYYYY e.g. sec_bhavdata_full_19112026.csv or pd19112026.csv
+        m = re.search(r"(?<!\d)(\d{2})(\d{2})(20\d{2})(?!\d)", base)
+        if m:
+            try:
+                return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        # 4. DDMMYY e.g. PR191126.zip
+        m = re.search(r"(?<!\d)(\d{6})(?!\d)", base)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%d%m%y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        return None
+
     def parse_bhavcopy_file(self, content: bytes, filename: str) -> Tuple[List[Dict[str, Any]], str]:
         """Auto-detects whether file is a ZIP archive, pd*.csv, or sec_bhavdata*.csv."""
-        trade_date = datetime.now().strftime("%Y-%m-%d")
-        
-        for part in filename.replace(".", "_").split("_"):
-            digits = "".join(filter(str.isdigit, part))
-            if len(digits) == 8: # ddmmyyyy
-                try:
-                    trade_date = datetime.strptime(digits, "%d%m%Y").strftime("%Y-%m-%d")
-                    break
-                except ValueError:
-                    pass
-            elif len(digits) == 6: # ddmmyy
-                try:
-                    trade_date = datetime.strptime(digits, "%d%m%y").strftime("%Y-%m-%d")
-                    break
-                except ValueError:
-                    pass
+        trade_date = self._extract_date_from_filename(filename) or _now_ist().strftime("%Y-%m-%d")
 
         if filename.lower().endswith(".zip") or zipfile.is_zipfile(io.BytesIO(content)):
             with zipfile.ZipFile(io.BytesIO(content)) as z:
@@ -234,16 +288,18 @@ class BhavcopyEngine:
 
         return self.get_latest_cache_date()
 
-    def sync_daily_market(self) -> Dict[str, Any]:
+    def sync_daily_market(
+        self,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> Dict[str, Any]:
         """
         Main scan action:
-        1. Checks what trading session date our database currently has.
-        2. Identifies any missing trading days (weekdays) between the recorded date and today.
-        3. On weekends/holidays or weekdays, downloads and ingests missing Bhavcopies from NSE.
-        4. Provides clear, accurate user guidance based on whether markets are closed,
-           missing days were backfilled, or today's session data was loaded.
+        1. Checks what complete trading session date our database currently has.
+        2. Identifies any missing trading days (weekdays) between the recorded date and today (IST).
+        3. Downloads and ingests missing Bhavcopies in a single batch, refreshes benchmarks, and
+           recomputes screener_cache.json once at the end.
         """
-        today = datetime.now()
+        today = _now_ist()
         today_date = today.date()
         today_str = today.strftime("%Y-%m-%d")
         is_weekend = today.weekday() >= 5
@@ -256,7 +312,7 @@ class BhavcopyEngine:
 
         db_date_str = None
         try:
-            db_date_str = data_engine.get_latest_data_date()
+            db_date_str = data_engine.get_latest_complete_data_date()
         except Exception:
             pass
         cache_date_str = self.get_latest_cache_date()
@@ -284,26 +340,55 @@ class BhavcopyEngine:
             curr += timedelta(days=1)
 
         ingested_dates = []
+        ingested_batches: List[Tuple[List[Dict[str, Any]], str]] = []
         total_stocks_updated = 0
         latest_ingested_date = None
+        total_steps = max(1, len(candidate_dates) + 1)
 
-        for c_date in candidate_dates:
+        for idx, c_date in enumerate(candidate_dates, start=1):
+            if progress_callback:
+                progress_callback(idx - 1, total_steps, f"Checking NSE Bhavcopy {c_date.strftime('%d %b %Y')}...")
             res = self.fetch_bhavcopy_for_date(datetime.combine(c_date, datetime.min.time()))
             if res:
                 stocks, t_date = res
-                count = self.ingest_stocks_to_db(stocks, t_date)
+                count = self.ingest_stocks_to_db(stocks, t_date, recompute_cache=False)
                 ingested_dates.append(t_date)
+                ingested_batches.append((stocks, t_date))
                 total_stocks_updated = count
-                latest_ingested_date = t_date
+                latest_ingested_date = max(latest_ingested_date, t_date) if latest_ingested_date else t_date
 
-        # If SQLite already had newer trading data than screener_cache.json (e.g. after git pull), sync cache from SQLite
+        if ingested_dates:
+            if progress_callback:
+                progress_callback(len(candidate_dates), total_steps, "Refreshing benchmarks & recalculating screener...")
+            try:
+                data_engine.refresh_benchmarks()
+            except Exception as e:
+                logger.debug(f"Benchmark refresh skipped: {e}")
+
+            from backend.app.export_seed import export_cache
+            exported_count = export_cache(as_of_date=latest_ingested_date)
+            if not exported_count:
+                for batch_stocks, batch_date in ingested_batches:
+                    self.update_cache_with_bhavcopy(batch_stocks, batch_date)
+            if progress_callback:
+                progress_callback(total_steps, total_steps, "Complete")
+
+        # If SQLite already had newer complete trading data than screener_cache.json, sync cache from SQLite
         if not ingested_dates and db_date_str and (not cache_date_str or db_date_str > cache_date_str):
+            if progress_callback:
+                progress_callback(len(candidate_dates), total_steps, "Syncing screener cache from SQLite...")
+            try:
+                data_engine.refresh_benchmarks()
+            except Exception as e:
+                logger.debug(f"Benchmark refresh skipped: {e}")
             from backend.app.export_seed import export_cache
             exported_count = export_cache(as_of_date=db_date_str)
             if exported_count:
                 ingested_dates.append(db_date_str)
                 total_stocks_updated = exported_count
                 latest_ingested_date = db_date_str
+            if progress_callback:
+                progress_callback(total_steps, total_steps, "Complete")
 
         current_latest_str = latest_ingested_date or latest_recorded_str or today_str
         try:
@@ -377,16 +462,24 @@ class BhavcopyEngine:
 
         parsed_map = {s["symbol"].upper(): s for s in parsed_stocks}
         existing_items = []
+        old_cache_date: Optional[str] = None
         if os.path.exists(CACHE_JSON_PATH):
             try:
                 with open(CACHE_JSON_PATH, "r", encoding="utf-8") as f:
                     payload = json.load(f)
                     existing_items = payload.get("results", [])
+                    old_cache_date = payload.get("latest_data_date")
             except Exception as e:
                 logger.warning(f"Could not load existing cache for incremental update: {e}")
 
         if not existing_items:
             return 0
+
+        is_newer_session = (not old_cache_date) or (trade_date > old_cache_date)
+        try:
+            ref_dt = datetime.strptime(trade_date, "%Y-%m-%d")
+        except Exception:
+            ref_dt = _now_ist()
 
         updated_results = []
         updated_count = 0
@@ -395,14 +488,36 @@ class BhavcopyEngine:
             sym = item.get("symbol", "").upper()
             if sym in parsed_map:
                 p = parsed_map[sym]
+                new_open = float(p["open"])
                 new_close = float(p["close"])
                 new_high = float(p["high"])
                 new_low = float(p["low"])
                 new_vol = float(p["volume"])
                 new_turnover = float(p.get("turnover", 0.0))
 
-                prev_close = float(item.get("current_price") or new_close)
-                change_pct = round(((new_close - prev_close) / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
+                old_price = float(item.get("current_price") or new_close)
+                bhav_prev_close = p.get("prev_close")
+
+                # Detect corporate action discontinuity (split / bonus / consolidation)
+                adj_ratio = 1.0
+                if old_price >= 5.0:
+                    if bhav_prev_close is not None and float(bhav_prev_close) > 0:
+                        r_prev = float(bhav_prev_close) / old_price
+                        if r_prev > 1.45 or r_prev < 0.60:
+                            adj_ratio = r_prev
+                    elif new_open > 0 and new_close > 0:
+                        r_open = new_open / old_price
+                        r_close = new_close / old_price
+                        if (r_open > 1.45 and r_close > 1.45) or (r_open < 0.60 and r_close < 0.60):
+                            adj_ratio = r_open
+
+                if adj_ratio != 1.0:
+                    for fld in ("high_52w", "high_ath", "low_52w", "sma20", "sma50", "sma100", "sma200", "sma200_21d_ago"):
+                        if item.get(fld) is not None:
+                            item[fld] = round(float(item[fld]) * adj_ratio, 2)
+
+                ref_prev_close = float(bhav_prev_close) if (bhav_prev_close is not None and float(bhav_prev_close) > 0) else (old_price * adj_ratio)
+                change_pct = round(((new_close - ref_prev_close) / ref_prev_close) * 100.0, 2) if ref_prev_close > 0 else 0.0
 
                 high_52w = max(float(item.get("high_52w") or new_high), new_high)
                 high_ath = max(float(item.get("high_ath") or new_high), new_high)
@@ -411,41 +526,35 @@ class BhavcopyEngine:
                 dist_to_52w = round(((new_close - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
                 dist_to_ath = round(((new_close - high_ath) / high_ath) * 100.0, 2) if high_ath > 0 else 0.0
 
-                # Volume multiple estimation
+                raw_bars = item.get("trading_days")
+                n_bars = int(raw_bars) if raw_bars is not None else 500
+                if is_newer_session:
+                    n_bars += 1
+                    for ma_key, win in (("sma20", 20), ("sma50", 50), ("sma100", 100), ("sma200", 200)):
+                        if item.get(ma_key) is not None:
+                            old_ma = float(item[ma_key])
+                            item[ma_key] = round(old_ma + (new_close - old_ma) / float(win), 2)
+
+                # Rolling 20-day turnover blend & liquidity check
+                today_cr = (new_turnover / 1e7) if new_turnover > 0 else ((new_close * new_vol) / 1e7)
+                prev_t_cr = float(item.get("turnover_cr") or 0.0)
+                if is_newer_session and prev_t_cr > 0 and today_cr > 0:
+                    turnover_cr = round((prev_t_cr * 19.0 + today_cr) / 20.0, 2)
+                else:
+                    turnover_cr = round(today_cr, 2) if today_cr > 0 else prev_t_cr
+
+                prev_active = int(item.get("active_days_20d") if item.get("active_days_20d") is not None else 20)
+                if is_newer_session and new_vol > 0 and prev_active < 20:
+                    prev_active = min(20, prev_active + 1)
+                passes_liq = bool(prev_active >= min(screener_engine.min_active_days_20d, max(1, n_bars)) and turnover_cr >= 0.25)
+
+                # Volume multiple estimation & canonical confirmation
                 old_vol = float(item.get("volume") or 0.0)
                 old_mult = float(item.get("vol_multiple") or 1.0)
                 vol_sma50 = (old_vol / old_mult) if (old_mult > 0 and old_vol > 0) else max(new_vol, 1.0)
-                vol_mult = round(new_vol / vol_sma50, 2) if vol_sma50 > 0 else 1.0
-
-                passes_liq = bool(item.get("passes_liquidity", True))
-                is_vol_confirmed = bool(passes_liq and vol_mult >= 1.4 and new_vol >= 5000)
-                turnover_cr = round(new_turnover / 1e7, 2) if new_turnover > 0 else float(item.get("turnover_cr") or 0.0)
-
-                # Moving Averages and Stage 2 Trend Check
-                sma50 = item.get("sma50")
-                sma200 = item.get("sma200")
-                sma200_21d_ago = item.get("sma200_21d_ago")
-                sma200_slope = item.get("sma200_slope_60d_pct")
-                n_bars = int(item.get("trading_days") or 500)
-                passes_trend = bool(
-                    passes_liq
-                    and sma50 is not None
-                    and sma200 is not None
-                    and new_close > float(sma50)
-                    and float(sma50) > float(sma200)
-                    and n_bars >= 200
-                    and (
-                        (sma200_21d_ago is not None and float(sma200) > float(sma200_21d_ago))
-                        or (sma200_21d_ago is None and (sma200_slope is None or float(sma200_slope) >= 0.0))
-                    )
-                )
-
-                # Strict Moving Average Rule: A stock cannot enter breakout lists if trading below 50 SMA or 200 SMA
-                is_above_mas = True
-                if sma50 is not None and new_close < float(sma50):
-                    is_above_mas = False
-                if sma200 is not None and n_bars >= 200 and new_close < float(sma200):
-                    is_above_mas = False
+                if adj_ratio != 1.0 and adj_ratio > 0:
+                    vol_sma50 = vol_sma50 / adj_ratio
+                vol_mult, is_vol_confirmed = screener_engine.compute_volume_confirmation(new_vol, vol_sma50, passes_liq)
 
                 # Validate genuine recent listing using official exchange listing date
                 is_recent = bool(item.get("is_recently_listed", False))
@@ -453,32 +562,36 @@ class BhavcopyEngine:
                     meta = universe_store.get(sym)
                     if meta and meta.listing_date:
                         dt = datetime.strptime(meta.listing_date.strip(), "%d-%b-%Y")
-                        is_recent = (datetime.now() - dt).days <= 730
+                        is_recent = (ref_dt - dt).days <= 730
                 except Exception:
                     pass
 
-                # Status categorization
-                if not passes_liq:
-                    status = "ILLIQUID"
-                    status_label = "Illiquid / Inactive"
-                elif not is_above_mas:
-                    status = "CONSOLIDATING"
-                    status_label = "Consolidating"
-                elif is_recent and dist_to_52w >= -10.0:
-                    status = "RECENT_LISTING"
-                    status_label = "Recent Listing (<2Y)"
-                elif dist_to_ath >= -10.0 and dist_to_ath <= 10.0 and n_bars >= 500:
-                    status = "NEAR_ATH"
-                    status_label = "All-Time High (ATH)"
-                elif dist_to_52w >= -0.5:
-                    status = "AT_52W_HIGH"
-                    status_label = "52-Week Breakout"
-                elif dist_to_52w >= -10.0:
-                    status = "NEAR_52W_HIGH"
-                    status_label = "Near 52W High"
-                else:
-                    status = "CONSOLIDATING"
-                    status_label = "Consolidating"
+                sma20 = item.get("sma20")
+                sma50 = item.get("sma50")
+                sma200 = item.get("sma200")
+                sma200_21d_ago = item.get("sma200_21d_ago")
+                sma200_slope = item.get("sma200_slope_60d_pct")
+
+                passes_trend, _ = screener_engine.check_stage2_trend(
+                    price=new_close,
+                    sma20=sma20,
+                    sma50=sma50,
+                    sma200=sma200,
+                    sma200_21d_ago=sma200_21d_ago,
+                    sma200_slope_60d_pct=sma200_slope,
+                    trading_days=n_bars,
+                    passes_liquidity=passes_liq,
+                    is_recently_listed=is_recent,
+                )
+                above_mas = screener_engine.is_above_mas(new_close, sma50, sma200, n_bars)
+                status, status_label = screener_engine.classify_status(
+                    dist_52w=dist_to_52w,
+                    dist_ath=dist_to_ath,
+                    trading_days=n_bars,
+                    is_recent=is_recent,
+                    passes_liquidity=passes_liq,
+                    is_above_mas=above_mas,
+                )
 
                 item["current_price"] = round(new_close, 2)
                 item["change_pct"] = change_pct
@@ -491,6 +604,10 @@ class BhavcopyEngine:
                 item["dist_to_52w_high_pct"] = dist_to_52w
                 item["dist_to_ath_pct"] = dist_to_ath
                 item["turnover_cr"] = turnover_cr
+                item["active_days_20d"] = prev_active
+                item["trading_days"] = n_bars
+                item["is_recently_listed"] = is_recent
+                item["passes_liquidity"] = passes_liq
                 item["status"] = status
                 item["status_label"] = status_label
                 item["passes_trend_check"] = passes_trend
@@ -510,28 +627,70 @@ class BhavcopyEngine:
             if sym in top10_map:
                 item["composite_score"], item["top10_rank"] = top10_map[sym]
 
+        effective_date = max(trade_date, old_cache_date) if old_cache_date else trade_date
         payload = {
-            "last_scanned": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "latest_data_date": trade_date,
+            "last_scanned": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+            "latest_data_date": effective_date,
             "total_cached": len(updated_results),
             "results": updated_results
         }
-        with open(CACHE_JSON_PATH, "w", encoding="utf-8") as f:
+        tmp_cache = f"{CACHE_JSON_PATH}.tmp"
+        with open(tmp_cache, "w", encoding="utf-8") as f:
             json.dump(payload, f)
+        os.replace(tmp_cache, CACHE_JSON_PATH)
 
-        logger.info(f"Incrementally updated screener cache for {updated_count} stocks as of {trade_date}.")
+        logger.info(f"Incrementally updated screener cache for {updated_count} stocks as of {effective_date}.")
         return updated_count
 
-    def ingest_stocks_to_db(self, parsed_stocks: List[Dict[str, Any]], trade_date: str) -> int:
+    def ingest_stocks_to_db(
+        self,
+        parsed_stocks: List[Dict[str, Any]],
+        trade_date: str,
+        recompute_cache: bool = True,
+    ) -> int:
         """
         Inserts new daily candles into SQLite in a single transaction,
-        recalculates momentum indicators, and persists screener_cache.json.
+        optionally recalculates momentum indicators, and persists screener_cache.json.
         """
         if not parsed_stocks:
             return 0
 
-        with sqlite3.connect(self.db_path) as conn:
+        corp_action_symbols: List[str] = []
+
+        with data_engine._connect() as conn:
             cursor = conn.cursor()
+
+            # Query latest close prior to trade_date to detect corporate actions (splits/bonuses/consolidations)
+            cursor.execute("""
+                SELECT d.symbol, d.close
+                FROM daily_candles d
+                INNER JOIN (
+                    SELECT symbol, MAX(date) AS max_date
+                    FROM daily_candles
+                    WHERE date < ?
+                    GROUP BY symbol
+                ) m ON d.symbol = m.symbol AND d.date = m.max_date
+            """, (trade_date,))
+            prev_db_closes = {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
+
+            for s in parsed_stocks:
+                sym = s["symbol"]
+                prev_db_close = prev_db_closes.get(sym)
+                if prev_db_close is not None and prev_db_close >= 5.0:
+                    bhav_prev = s.get("prev_close")
+                    if bhav_prev is not None and float(bhav_prev) > 0:
+                        r_prev = float(bhav_prev) / prev_db_close
+                        if r_prev > 1.45 or r_prev < 0.60:
+                            corp_action_symbols.append(sym)
+                            continue
+                    open_p = float(s.get("open") or 0)
+                    close_p = float(s.get("close") or 0)
+                    if open_p > 0 and close_p > 0:
+                        r_open = open_p / prev_db_close
+                        r_close = close_p / prev_db_close
+                        if (r_open > 1.45 and r_close > 1.45) or (r_open < 0.60 and r_close < 0.60):
+                            corp_action_symbols.append(sym)
+
             records = [
                 (
                     s["symbol"],
@@ -550,6 +709,7 @@ class BhavcopyEngine:
             """, records)
 
             # Update stock_ath table if any stock hits a new lifetime high today
+            now_ist_str = _now_ist().strftime("%Y-%m-%d %H:%M:%S")
             for s in parsed_stocks:
                 sym = s["symbol"]
                 h = float(s["high"])
@@ -560,18 +720,29 @@ class BhavcopyEngine:
                         cursor.execute("""
                             INSERT OR REPLACE INTO stock_ath (symbol, ath_price, ath_date, updated_at)
                             VALUES (?, ?, ?, ?)
-                        """, (sym, round(h, 2), trade_date, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        """, (sym, round(h, 2), trade_date, now_ist_str))
 
             conn.commit()
 
-        # Recalculate momentum screener and update cache strictly as of trade_date
-        from backend.app.export_seed import export_cache
-        exported_count = export_cache(as_of_date=trade_date)
-        if not exported_count:
-            # Fallback for cloud instances without full historical database:
-            self.update_cache_with_bhavcopy(parsed_stocks, trade_date)
-            
-        logger.info(f"Ingested {len(parsed_stocks)} stocks for date {trade_date} and updated screener cache.")
+        # Fetch full adjusted history for any stock showing a corporate-action discontinuity
+        for sym in corp_action_symbols:
+            try:
+                logger.info(f"Corporate action discontinuity detected for {sym} on {trade_date}; refreshing adjusted history.")
+                data_engine.fetch_and_cache_symbol(sym, period="max", max_retries=1, force_ath_reset=True)
+            except Exception as e:
+                logger.warning(f"Could not refresh adjusted history for {sym}: {e}")
+
+        if recompute_cache:
+            from backend.app.export_seed import export_cache
+            latest_db_date = data_engine.get_latest_complete_data_date()
+            effective_as_of = max(trade_date, latest_db_date) if latest_db_date else trade_date
+            exported_count = export_cache(as_of_date=effective_as_of)
+            if not exported_count:
+                latest_cache_date = self.get_latest_cache_date()
+                if not latest_cache_date or trade_date >= latest_cache_date:
+                    self.update_cache_with_bhavcopy(parsed_stocks, trade_date)
+
+        logger.info(f"Ingested {len(parsed_stocks)} stocks for date {trade_date}.")
         return len(parsed_stocks)
 
 bhavcopy_engine = BhavcopyEngine()

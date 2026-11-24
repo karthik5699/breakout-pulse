@@ -1,114 +1,134 @@
 import React from 'react'
-import { Sun, Moon, RefreshCw, Upload, Search } from 'lucide-react'
+import { Sun, Moon, RefreshCw, Search } from 'lucide-react'
 
 export default function Navbar({
   theme,
   setTheme,
-  activeTab,
-  setActiveTab,
+  onSelectHome,
   searchQuery,
   setSearchQuery,
+  searchInputRef,
   onOpenUpload,
   onTriggerScan,
-  scanStatus
+  scanStatus,
+  totalStocks = 0,
 }) {
   const isDark = theme === 'dark'
+  const totalDisplay = totalStocks > 0 ? totalStocks.toLocaleString('en-IN') : '2,553'
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111827]/95 backdrop-blur border-b border-[#E5E7EB] dark:border-[#1F2937] transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        
-        {/* Brand: Institutional Geometric Logomark & Wordmark */}
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setActiveTab('ath')}
-            className="flex items-center gap-2.5 text-left focus:outline-none group"
+    <header className="sticky top-0 z-30 bg-[var(--surface)] border-b border-[var(--border)]">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(220px,380px)_auto] items-center gap-x-2 sm:gap-x-5 gap-y-2.5 py-2.5 md:py-0 md:h-[56px]">
+        {/* Brand Wordmark */}
+        <button
+          type="button"
+          onClick={onSelectHome}
+          className="col-start-1 row-start-1 inline-flex items-center gap-2 sm:gap-2.5 text-left text-[var(--ink)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-[6px] cursor-pointer whitespace-nowrap justify-self-start"
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            className="shrink-0 block"
+            aria-hidden="true"
           >
-            {/* VCP Geometric Logomark */}
-            <div className="w-8 h-8 rounded-lg bg-[#8069BF] text-white flex items-center justify-center shadow-xs transition-transform group-hover:scale-105">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-4.5 h-4.5">
-                <path 
-                  d="M3 17L7 8L11 15L15 10L18 13L21 5" 
-                  stroke="currentColor" 
-                  strokeWidth="2.2" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
+            <rect x="2" y="2" width="20" height="20" rx="5" fill="var(--accent)" />
+            <path
+              d="M6.5 14.5L10.2 10.8L13.1 13.4L17.5 8.5"
+              stroke="#FFFFFF"
+              strokeWidth="2.1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M14.5 8.5H17.5V11.5"
+              stroke="#FFFFFF"
+              strokeWidth="2.1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className="font-display text-[20px] font-extrabold tracking-[-0.03em] leading-none">
+            BreakoutPulse
+          </span>
+        </button>
 
-            <div>
-              {/* Wordmark: Breakout (#8069BF, SemiBold 600) + Pulse (Regular 400, Muted Gray) */}
-              <div className="flex items-baseline text-lg tracking-tight leading-none">
-                <span className="font-semibold text-[#8069BF]">Breakout</span>
-                <span className="font-normal text-[#6B7280] dark:text-[#9CA3AF]">Pulse</span>
-              </div>
-              <div className="text-[11px] font-normal text-[#6B7280] dark:text-[#9CA3AF] tracking-tight mt-0.5">
-                52W High & ATH Momentum Screener (NSE)
-              </div>
-            </div>
-          </button>
-        </div>
-
-        {/* Global Search Bar */}
-        <div className="relative flex-1 max-w-md hidden md:block">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" />
+        {/* Global Search Input */}
+        <div className="col-span-2 row-start-2 md:col-span-1 md:col-start-2 md:row-start-1 relative flex items-center w-full justify-self-center">
+          <Search
+            className="w-[15px] h-[15px] text-[var(--ink-muted)] absolute left-3 pointer-events-none"
+            aria-hidden="true"
+          />
           <input
-            type="text"
+            ref={searchInputRef}
+            type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search NSE ticker or company (e.g. TRENT, DIXON, BEL)..."
-            className="w-full pl-9 pr-4 py-2 text-sm bg-[#F9FAFB] dark:bg-[#1F2937] border border-transparent focus:border-[#8069BF] dark:focus:border-[#8069BF] rounded-xl focus:outline-none text-[#111827] dark:text-[#F9FAFB] placeholder:text-[#6B7280] dark:placeholder:text-[#9CA3AF] transition-all"
+            placeholder={`Search ${totalDisplay} NSE equities...`}
+            aria-label="Search NSE equities"
+            className="w-full h-[36px] pl-9 pr-12 text-[14px] text-[var(--ink)] bg-[var(--surface-subtle)] border border-[var(--border)] focus:border-[var(--accent)] focus:bg-[var(--surface)] rounded-[6px] outline-none placeholder:text-[var(--ink-muted)] bp-transition"
           />
-          {searchQuery && (
-            <button 
+          {searchQuery ? (
+            <button
+              type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB]"
+              className="absolute right-3 text-[13px] font-medium text-[var(--ink-muted)] hover:text-[var(--ink)] cursor-pointer bp-transition"
             >
               Clear
             </button>
+          ) : (
+            <span
+              aria-hidden="true"
+              className="absolute right-3 text-[13px] text-[var(--ink-muted)] pointer-events-none"
+            >
+              /
+            </span>
           )}
         </div>
 
-        {/* Right Actions */}
-        <div className="flex items-center gap-2.5">
-          
-          {/* Action Button: #8069BF */}
+        {/* Right Utility Links & Primary CTA */}
+        <div className="col-start-2 row-start-1 md:col-start-3 inline-flex items-center gap-2 sm:gap-3.5 justify-self-end whitespace-nowrap">
           <button
+            type="button"
+            onClick={onOpenUpload}
+            className="hidden sm:inline-flex items-center px-2 py-1.5 rounded-[5px] text-[14px] font-medium text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-subtle)] bp-transition cursor-pointer"
+            title="Import NSE Bhavcopy archive or stock universe CSV"
+          >
+            Import data
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            aria-label={isDark ? 'Switch to Daylight Broadsheet light theme' : 'Switch to Marine-Ink dark theme'}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="inline-flex items-center justify-center w-[34px] h-[34px] rounded-[6px] border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-subtle)] text-[var(--ink-muted)] hover:text-[var(--ink)] bp-transition cursor-pointer"
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          <button
+            type="button"
             onClick={onTriggerScan}
             disabled={scanStatus?.is_scanning}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all ${
+            title={scanStatus?.current_symbol || 'Scan official NSE Bhavcopy for latest session'}
+            className={`inline-flex items-center gap-2 h-[34px] sm:h-[36px] px-3 sm:px-4 rounded-[6px] text-[13px] sm:text-[14px] font-semibold bp-transition ${
               scanStatus?.is_scanning
-                ? 'bg-[#E5E7EB] dark:bg-[#1F2937] text-[#9CA3AF] cursor-not-allowed'
-                : 'bg-[#8069BF] hover:bg-[#7259B4] text-white shadow-xs active:scale-95'
+                ? 'bg-[var(--surface-subtle)] text-[var(--ink-muted)] border border-[var(--border)] cursor-not-allowed'
+                : 'bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white active:translate-y-[1px] cursor-pointer'
             }`}
-            title="Scan universe with latest daily close"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${scanStatus?.is_scanning ? 'animate-spin text-[#9CA3AF]' : 'text-white'}`} />
-            <span className="hidden sm:inline">
-              {scanStatus?.is_scanning 
-                ? (scanStatus.total ? `Scanning (${scanStatus.progress}/${scanStatus.total})` : 'Scanning…')
-                : 'Scan Market'}
+            {scanStatus?.is_scanning && (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+            )}
+            <span>
+              {scanStatus?.is_scanning
+                ? scanStatus.total > 1
+                  ? `Scanning (${scanStatus.progress}/${scanStatus.total})`
+                  : 'Scanning...'
+                : 'Scan market'}
             </span>
-          </button>
-
-          {/* Upload CSV */}
-          <button
-            onClick={onOpenUpload}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-[#111827] dark:text-[#F9FAFB] bg-[#F9FAFB] dark:bg-[#1F2937] hover:bg-[#E5E7EB] dark:hover:bg-[#374151] rounded-xl transition-colors border border-[#E5E7EB] dark:border-[#374151]"
-            title="Manage NSE Stock Universe CSV"
-          >
-            <Upload className="w-3.5 h-3.5 text-[#9CA3AF]" />
-            <span className="hidden sm:inline">NSE Universe</span>
-          </button>
-
-          {/* Theme Switcher */}
-          <button
-            onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className="p-2 text-[#6B7280] dark:text-[#9CA3AF] hover:text-[#111827] dark:hover:text-[#F9FAFB] hover:bg-[#F9FAFB] dark:hover:bg-[#1F2937] rounded-xl transition-colors"
-            aria-label="Toggle Theme"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-[#9CA3AF]" /> : <Moon className="w-4 h-4 text-[#6B7280]" />}
           </button>
         </div>
       </div>

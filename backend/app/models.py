@@ -108,6 +108,7 @@ class StockScreenerItem(BaseModel):
     passes_top10_step1: Optional[bool] = False
     composite_score: Optional[float] = None
     top10_rank: Optional[int] = None
+    spark: Optional[List[float]] = None
 
 class ChartPayload(BaseModel):
     symbol: str
@@ -122,6 +123,14 @@ class ChartPayload(BaseModel):
     turnover_cr: Optional[float] = 0.0
     is_fno: bool = False
     fno_lot_size: Optional[int] = None
+    is_synthetic: bool = False
+    current_price: Optional[float] = None
+    change_pct: Optional[float] = None
+    atr14_pct: Optional[float] = None
+    sma20: Optional[float] = None
+    sma50: Optional[float] = None
+    sma100: Optional[float] = None
+    sma200: Optional[float] = None
 
 class UniverseStats(BaseModel):
     total_stocks: int
@@ -142,3 +151,8 @@ class UniverseStats(BaseModel):
     smallmid_trend: Optional[str] = None
     nifty50_trend: Optional[str] = None
     vc_stage2_symbols: Optional[List[str]] = []
+    filtered_near_ath_count: Optional[int] = None
+    filtered_near_52w_count: Optional[int] = None
+    filtered_recent_listing_count: Optional[int] = None
+    filtered_top10_count: Optional[int] = None
+    filtered_all_count: Optional[int] = None
